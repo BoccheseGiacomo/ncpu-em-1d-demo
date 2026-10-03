@@ -1,0 +1,516 @@
+import {
+  TASKS,
+  decodeSingle,
+  loadModel,
+  outputLengthBound,
+  rollout,
+  semanticCorrect,
+  taskTarget,
+  tapeSymbols,
+  value,
+} from "./nca.js";
+
+const MAX_TAPE = 64;
+const MAX_STEPS = 3000;
+const NEGATIVE = [59, 76, 192];
+const NEUTRAL = [245, 245, 245];
+const POSITIVE = [180, 4, 38];
+
+const $ = (id) => document.getElementById(id);
+const ui = Object.fromEntries(
+  [
+    "modelInfo", "task", "input", "random", "examples", "tape", "tapeAuto", "free",
+    "supervision", "timeAuto", "timeAutoLabel", "seed", "reseed", "error", "badge",
+    "target", "output", "verdict", "raw", "window", "readoutNote", "spacetime",
+    "spacetimeHover", "channels", "channelsHover", "time", "play", "phase", "stepLabel",
+    "stepDecoded", "stepVerdict", "explainer", "provenance",
+  ].map((id) => [id, $(id)]),
+);
+
+let model;
+let training;
+let run = null; // { result, target, free, supervision, steps }
+let step = 0;
+let playing = false;
+let scheduled = 0;
+
+const roundHalfUp = (x) => Math.floor(x + 0.5);
+const percent = (x) => `${(100 * x).toFixed(x === 1 || x === 0 ? 0 : 1)}%`;
+
+function color(v) {
+  const t = Math.max(-1, Math.min(1, v));
+  const end = t < 0 ? NEGATIVE : POSITIVE;
+  const a = Math.abs(t);
+  return NEUTRAL.map((n, i) => Math.round(n + a * (end[i] - n)));
+}
+
+function channelName(c) {
+  const { program_channels: P, io_channel: io } = model.doc.config;
+  if (c < P) return `P${c}`;
+  if (c === io) return "I/O";
+  return `C${c - io - 1}`;
+}
+
+// --- Parameters ---
+
+function autoTape(task, length) {
+  const fit = Math.max(length + 1, outputLengthBound(task, length) + 1);
+  // Reproduces the training pairs (3→5, 5→8, 7→11, 10→15, 13→20).
+  return Math.min(MAX_TAPE, Math.max(2, fit, length + Math.max(2, Math.ceil(length / 2))));
+}
+
+function autoTiming(tape) {
+  const free = roundHalfUp(training.free_steps_per_tape_slot * tape);
+  return { free, supervision: roundHalfUp(training.supervision_ratio * free) };
+}
+
+function readInteger(input) {
+  const text = input.value.trim();
+  return /^\d+$/.test(text) ? Number(text) : NaN;
+}
+
+function syncAutoFields() {
+  const task = ui.task.value;
+  const input = ui.input.value.trim();
+  ui.tape.disabled = ui.tapeAuto.checked;
+  ui.free.disabled = ui.supervision.disabled = ui.timeAuto.checked;
+  if (ui.tapeAuto.checked && /^[01]*$/.test(input)) ui.tape.value = autoTape(task, input.length);
+  const tape = readInteger(ui.tape);
+  if (ui.timeAuto.checked && Number.isInteger(tape)) {
+    const timing = autoTiming(tape);
+    ui.free.value = timing.free;
+    ui.supervision.value = timing.supervision;
+  }
+}
+
+function readParameters() {
+  const task = ui.task.value;
+  const input = ui.input.value.trim();
+  const tape = readInteger(ui.tape);
+  const free = readInteger(ui.free);
+  const supervision = readInteger(ui.supervision);
+  const seed = readInteger(ui.seed);
+  const invalid = (field, message) => ({ error: message, field });
+  if (!/^[01]*$/.test(input)) return invalid(ui.input, "The input may contain only 0 and 1.");
+  if (!Number.isInteger(tape) || tape < 2 || tape > MAX_TAPE) {
+    return invalid(ui.tape, `Tape cells must be a whole number from 2 to ${MAX_TAPE}.`);
+  }
+  if (input.length > tape - 1) {
+    return invalid(ui.input, `The input must leave at least one blank cell (at most ${tape - 1} bits).`);
+  }
+  if (outputLengthBound(task, input.length) > tape - 1) {
+    return invalid(ui.tape, "The output must leave at least one blank cell; use a longer tape.");
+  }
+  if (!Number.isInteger(free)) return invalid(ui.free, "Free steps must be a whole number ≥ 0.");
+  if (!Number.isInteger(supervision) || supervision < 1) {
+    return invalid(ui.supervision, "Supervised steps must be a whole number ≥ 1.");
+  }
+  if (free + supervision > MAX_STEPS) {
+    return invalid(ui.free, `Free + supervised steps must be at most ${MAX_STEPS}.`);
+  }
+  if (!Number.isInteger(seed) || seed > 0xffffffff) return invalid(ui.seed, "The seed must be a whole number ≥ 0.");
+  return { task, input, tape, free, supervision, seed };
+}
+
+// --- URL state (shareable links) ---
+
+function writeHash(p) {
+  const params = new URLSearchParams({ task: p.task, input: p.input, seed: p.seed });
+  if (!ui.tapeAuto.checked) params.set("tape", p.tape);
+  if (!ui.timeAuto.checked) {
+    params.set("free", p.free);
+    params.set("sup", p.supervision);
+  }
+  history.replaceState(null, "", `#${params}`);
+}
+
+function readHash() {
+  const params = new URLSearchParams(location.hash.slice(1));
+  if (model.tasks.includes(params.get("task"))) ui.task.value = params.get("task");
+  if (params.has("input")) ui.input.value = params.get("input");
+  if (params.has("seed")) ui.seed.value = params.get("seed");
+  // A link fully determines the run: absent tape/timing means automatic.
+  ui.tapeAuto.checked = !params.has("tape");
+  if (params.has("tape")) ui.tape.value = params.get("tape");
+  ui.timeAuto.checked = !(params.has("free") && params.has("sup"));
+  if (!ui.timeAuto.checked) {
+    ui.free.value = params.get("free");
+    ui.supervision.value = params.get("sup");
+  }
+}
+
+// --- Running ---
+
+function schedule(delay = 80) {
+  clearTimeout(scheduled);
+  syncAutoFields();
+  scheduled = setTimeout(compute, delay);
+}
+
+function compute() {
+  for (const field of [ui.input, ui.tape, ui.free, ui.supervision, ui.seed]) {
+    field.removeAttribute("aria-invalid");
+  }
+  const p = readParameters();
+  if (p.error) {
+    ui.error.textContent = p.error;
+    p.field.setAttribute("aria-invalid", "true");
+    return;
+  }
+  ui.error.textContent = "";
+  const steps = p.free + p.supervision;
+  const result = rollout(model, {
+    task: p.task,
+    input: p.input,
+    tapeSlots: p.tape,
+    steps,
+    seed: p.seed,
+  });
+  run = { ...p, steps, result, target: taskTarget(p.task, p.input) };
+  writeHash(p);
+  stop();
+  ui.time.max = steps;
+  showResult();
+  setStep(steps);
+}
+
+function showResult() {
+  const { result, target, free, steps, input, tape } = run;
+  const raw = tapeSymbols(result, steps);
+  const decoded = decodeSingle(raw);
+  const correct = semanticCorrect(raw, target);
+  let windowCorrect = 0;
+  for (let t = free + 1; t <= steps; t++) windowCorrect += semanticCorrect(tapeSymbols(result, t), target);
+  const windowSteps = steps - free;
+
+  ui.target.textContent = target || "<empty>";
+  ui.output.textContent = decoded.output || "<empty>";
+  ui.verdict.textContent = correct ? "✓ correct" : "✗ wrong";
+  ui.verdict.className = `verdict ${correct ? "good" : "bad"}`;
+  ui.raw.textContent = raw;
+  ui.window.textContent =
+    `correct at ${windowCorrect} of ${windowSteps} supervised steps (${percent(windowCorrect / windowSteps)})` +
+    (windowCorrect === windowSteps ? " — stable" : "");
+  ui.readoutNote.textContent =
+    `Output is read at step ${steps}, the end of the supervision window. Cells above ` +
+    `+${model.threshold} read as 1, below −${model.threshold} as 0, otherwise blank (B); ` +
+    "the output ends at the first blank.";
+
+  const reasons = [];
+  if (input.length > training.input_max) reasons.push(`input ${input.length} > ${training.input_max} bits`);
+  if (tape > training.tape_max) reasons.push(`tape ${tape} > ${training.tape_max} cells`);
+  if (tape < training.tape_min) reasons.push(`tape ${tape} < ${training.tape_min} cells`);
+  ui.badge.textContent = reasons.length ? `extrapolation: ${reasons.join(", ")}` : "within training range";
+  ui.badge.className = `badge ${reasons.length ? "out" : "in"}`;
+}
+
+function phaseOf(t) {
+  if (t <= run.free) return "free evolution";
+  if (t <= run.steps) return "supervision window";
+  return "";
+}
+
+function setStep(t) {
+  step = Math.max(0, Math.min(run.steps, t));
+  ui.time.value = step;
+  ui.stepLabel.textContent = `${step} / ${run.steps}`;
+  ui.phase.textContent = phaseOf(step);
+  const raw = tapeSymbols(run.result, step);
+  const correct = semanticCorrect(raw, run.target);
+  ui.stepDecoded.textContent = decodeSingle(raw).output || "<empty>";
+  ui.stepVerdict.textContent = correct ? "✓" : "✗";
+  ui.stepVerdict.className = `verdict ${correct ? "good" : "bad"}`;
+  drawSpacetime();
+  drawChannels();
+}
+
+// --- Drawing ---
+
+function prepare(canvas, height) {
+  const width = canvas.parentElement.clientWidth;
+  const ratio = window.devicePixelRatio || 1;
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  const context = canvas.getContext("2d");
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  return { context, width, height };
+}
+
+const STRIP = 8;
+
+function spacetimeGeometry() {
+  const rows = run.steps + 1;
+  return { rows, height: Math.max(160, Math.min(560, rows * 4)) };
+}
+
+function drawSpacetime() {
+  const { result, T, steps, free } = { ...run, T: run.tape };
+  const { rows, height } = spacetimeGeometry();
+  const { context, width } = prepare(ui.spacetime, height);
+  const image = new ImageData(T, rows);
+  for (let t = 0; t <= steps; t++) {
+    for (let x = 0; x < T; x++) {
+      const [r, g, b] = color(value(result, t, model.io, x));
+      const i = 4 * (t * T + x);
+      image.data[i] = r;
+      image.data[i + 1] = g;
+      image.data[i + 2] = b;
+      image.data[i + 3] = 255;
+    }
+  }
+  const bitmap = document.createElement("canvas");
+  bitmap.width = T;
+  bitmap.height = rows;
+  bitmap.getContext("2d").putImageData(image, 0, 0);
+  context.imageSmoothingEnabled = false;
+  context.drawImage(bitmap, STRIP + 2, 0, width - STRIP - 2, height);
+
+  const styles = getComputedStyle(document.documentElement);
+  const rowHeight = height / rows;
+  context.fillStyle = styles.getPropertyValue("--free");
+  context.fillRect(0, 0, STRIP, (free + 1) * rowHeight);
+  context.fillStyle = styles.getPropertyValue("--supervised");
+  context.fillRect(0, (free + 1) * rowHeight, STRIP, height - (free + 1) * rowHeight);
+  // Current step marker.
+  const y = (step + 0.5) * rowHeight;
+  context.strokeStyle = styles.getPropertyValue("--text");
+  context.lineWidth = 1.5;
+  context.beginPath();
+  context.moveTo(0, y);
+  context.lineTo(width, y);
+  context.stroke();
+}
+
+function spacetimeCell(event) {
+  const rect = ui.spacetime.getBoundingClientRect();
+  const { rows } = spacetimeGeometry();
+  const t = Math.floor(((event.clientY - rect.top) / rect.height) * rows);
+  const x = Math.floor(((event.clientX - rect.left - STRIP - 2) / (rect.width - STRIP - 2)) * run.tape);
+  return { t: Math.max(0, Math.min(run.steps, t)), x };
+}
+
+const LABEL_WIDTH = 40;
+const INDEX_HEIGHT = 16;
+
+function channelsGeometry() {
+  const width = ui.channels.parentElement.clientWidth;
+  const cell = Math.max(4, Math.min(36, Math.floor((width - LABEL_WIDTH) / run.tape)));
+  return { cell, height: INDEX_HEIGHT + (model.C + 1) * cell + 6 };
+}
+
+function drawChannels() {
+  const { cell, height } = channelsGeometry();
+  const { context } = prepare(ui.channels, height);
+  const styles = getComputedStyle(document.documentElement);
+  const text = styles.getPropertyValue("--text");
+  const muted = styles.getPropertyValue("--muted");
+  const gold = styles.getPropertyValue("--gold");
+  const T = run.tape;
+  context.font = `${Math.min(12, Math.max(9, cell * 0.4))}px ui-monospace, Consolas, monospace`;
+  context.textBaseline = "middle";
+
+  context.textAlign = "center";
+  context.fillStyle = muted;
+  const every = cell >= 18 ? 1 : cell >= 9 ? 5 : 10;
+  for (let x = 0; x < T; x += every) {
+    context.fillText(String(x), LABEL_WIDTH + (x + 0.5) * cell, INDEX_HEIGHT / 2);
+  }
+  for (let c = 0; c < model.C; c++) {
+    const y = INDEX_HEIGHT + c * cell;
+    context.textAlign = "right";
+    context.fillStyle = c === model.io ? gold : text;
+    context.fillText(channelName(c), LABEL_WIDTH - 6, y + cell / 2);
+    for (let x = 0; x < T; x++) {
+      const [r, g, b] = color(value(run.result, step, c, x));
+      context.fillStyle = `rgb(${r},${g},${b})`;
+      context.fillRect(LABEL_WIDTH + x * cell, y, cell, cell);
+    }
+  }
+  if (cell >= 6) {
+    context.strokeStyle = styles.getPropertyValue("--grid");
+    context.lineWidth = 1;
+    context.beginPath();
+    for (let x = 0; x <= T; x++) {
+      context.moveTo(LABEL_WIDTH + x * cell + 0.5, INDEX_HEIGHT);
+      context.lineTo(LABEL_WIDTH + x * cell + 0.5, INDEX_HEIGHT + model.C * cell);
+    }
+    for (let c = 0; c <= model.C; c++) {
+      context.moveTo(LABEL_WIDTH, INDEX_HEIGHT + c * cell + 0.5);
+      context.lineTo(LABEL_WIDTH + T * cell, INDEX_HEIGHT + c * cell + 0.5);
+    }
+    context.stroke();
+  }
+  context.strokeStyle = gold;
+  context.lineWidth = 2;
+  context.strokeRect(LABEL_WIDTH, INDEX_HEIGHT + model.io * cell, T * cell, cell);
+
+  // Readout row: the I/O channel quantized to symbols.
+  const y = INDEX_HEIGHT + model.C * cell + 6;
+  const raw = tapeSymbols(run.result, step);
+  context.textAlign = "right";
+  context.fillStyle = muted;
+  context.fillText("read", LABEL_WIDTH - 6, y + cell / 2);
+  context.textAlign = "center";
+  if (cell >= 8) {
+    for (let x = 0; x < T; x++) {
+      context.fillStyle = raw[x] === "B" ? muted : text;
+      context.fillText(raw[x], LABEL_WIDTH + (x + 0.5) * cell, y + cell / 2);
+    }
+  }
+}
+
+function channelsCell(event) {
+  const rect = ui.channels.getBoundingClientRect();
+  const { cell } = channelsGeometry();
+  const x = Math.floor((event.clientX - rect.left - LABEL_WIDTH) / cell);
+  const c = Math.floor((event.clientY - rect.top - INDEX_HEIGHT) / cell);
+  return { x, c };
+}
+
+// --- Playback ---
+
+function stop() {
+  playing = false;
+  ui.play.textContent = "▶";
+  ui.play.setAttribute("aria-label", "Play");
+}
+
+function play() {
+  if (step >= run.steps) setStep(0);
+  playing = true;
+  ui.play.textContent = "❚❚";
+  ui.play.setAttribute("aria-label", "Pause");
+  const rate = Math.max(20, run.steps / 8); // steps per second; a full run plays in ≤ 8 s
+  let last = performance.now();
+  let carry = 0;
+  const tick = (now) => {
+    if (!playing) return;
+    carry += ((now - last) / 1000) * rate;
+    last = now;
+    const advance = Math.floor(carry);
+    if (advance) {
+      carry -= advance;
+      setStep(step + advance);
+    }
+    if (step >= run.steps) return stop();
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+// --- Wiring ---
+
+function describe() {
+  const c = model.doc.config;
+  const s = model.doc.source;
+  const accuracies = s.validation_accuracies
+    ? Object.entries(s.validation_accuracies)
+        .map(([task, accuracy]) => `${TASKS[task].label} ${percent(accuracy)}`)
+        .join(", ")
+    : null;
+  ui.modelInfo.textContent =
+    `${s.update.toLocaleString()} training updates · ${s.parameter_count.toLocaleString()} parameters · ` +
+    `trained on inputs ≤ ${training.input_max} bits, tapes ${training.tape_min}–${training.tape_max} cells`;
+  ui.timeAutoLabel.textContent =
+    `auto timing (${training.free_steps_per_tape_slot} free steps per cell, supervised ×${training.supervision_ratio})`;
+  ui.explainer.textContent =
+    `Each tape cell holds ${c.channels} numbers: ${c.program_channels} read-only program values that select ` +
+    `the task, 1 input/output value, and ${c.computation_channels} hidden values. At every step each cell ` +
+    `looks at itself and its ${c.radius === 1 ? "two neighbours" : `neighbours up to distance ${c.radius}`} ` +
+    `and the same small network (${s.parameter_count.toLocaleString()} parameters, shared by all cells and ` +
+    `all tasks) computes an update. Cells fire randomly with probability ${c.fire_rate} per step, as in ` +
+    `training; the seed makes this reproducible. The input is written into the I/O row (0 → −1, 1 → +1, ` +
+    `blank → 0); after the free steps, training asked the I/O row to hold the answer throughout the ` +
+    `supervision window.` +
+    (accuracies ? ` Validation accuracy in the training range: ${accuracies}.` : "");
+  ui.provenance.textContent = `Checkpoint ${s.checkpoint} (md5 ${s.md5.slice(0, 10)}).`;
+}
+
+function wire() {
+  const fields = [ui.task, ui.input, ui.tape, ui.free, ui.supervision, ui.seed];
+  for (const field of fields) field.addEventListener("input", () => schedule());
+  ui.tapeAuto.addEventListener("change", () => schedule(0));
+  ui.timeAuto.addEventListener("change", () => schedule(0));
+  ui.examples.addEventListener("click", (event) => {
+    const example = event.target.closest("button[data-example]");
+    if (!example) return;
+    ui.input.value = example.dataset.example;
+    schedule(0);
+  });
+  ui.random.addEventListener("click", () => {
+    const length = 1 + Math.floor(Math.random() * training.input_max);
+    ui.input.value = Array.from({ length }, () => (Math.random() < 0.5 ? "0" : "1")).join("");
+    schedule(0);
+  });
+  ui.reseed.addEventListener("click", () => {
+    ui.seed.value = Math.floor(Math.random() * 1e6);
+    schedule(0);
+  });
+  ui.time.addEventListener("input", () => {
+    stop();
+    setStep(Number(ui.time.value));
+  });
+  ui.play.addEventListener("click", () => (playing ? stop() : play()));
+
+  ui.spacetime.addEventListener("pointerdown", (event) => {
+    ui.spacetime.setPointerCapture(event.pointerId);
+    stop();
+    setStep(spacetimeCell(event).t);
+  });
+  ui.spacetime.addEventListener("pointermove", (event) => {
+    if (!run) return;
+    const { t, x } = spacetimeCell(event);
+    if (event.buttons) setStep(t);
+    ui.spacetimeHover.textContent =
+      x >= 0 && x < run.tape ? `step ${t}, cell ${x}: I/O = ${value(run.result, t, model.io, x).toFixed(3)}` : " ";
+  });
+  ui.spacetime.addEventListener("pointerleave", () => (ui.spacetimeHover.textContent = " "));
+  ui.channels.addEventListener("pointermove", (event) => {
+    if (!run) return;
+    const { x, c } = channelsCell(event);
+    const inside = x >= 0 && x < run.tape && c >= 0 && c < model.C;
+    ui.channelsHover.textContent = inside
+      ? `step ${step}, cell ${x}, ${channelName(c)} = ${value(run.result, step, c, x).toFixed(3)}`
+      : " ";
+  });
+  ui.channels.addEventListener("pointerleave", () => (ui.channelsHover.textContent = " "));
+
+  let width = 0;
+  new ResizeObserver(() => {
+    const current = ui.channels.parentElement.clientWidth;
+    if (run && current !== width) {
+      width = current;
+      drawSpacetime();
+      drawChannels();
+    }
+  }).observe(document.querySelector(".layout"));
+  window.addEventListener("hashchange", () => {
+    readHash();
+    schedule(0);
+  });
+}
+
+async function main() {
+  try {
+    const response = await fetch("model.json");
+    if (!response.ok) throw new Error(`model.json: HTTP ${response.status}`);
+    model = loadModel(await response.json());
+  } catch (error) {
+    ui.modelInfo.textContent = `Could not load the model: ${error.message}`;
+    ui.error.textContent = "The model failed to load. Serve this folder over HTTP (see README).";
+    return;
+  }
+  training = model.doc.training;
+  for (const task of model.tasks) ui.task.add(new Option(TASKS[task].label, task));
+  ui.input.value = "11111100";
+  ui.seed.value = 0;
+  ui.seed.disabled = ui.reseed.disabled = model.fireRate >= 1;
+  readHash();
+  describe();
+  wire();
+  schedule(0);
+}
+
+main();

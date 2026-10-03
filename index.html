@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NCPU-EM-1D demo</title>
+  <meta name="description" content="Run a frozen one-dimensional neural cellular automaton on binary strings, entirely in your browser." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 10'%3E%3Crect width='10' height='10' fill='%233b4cc0'/%3E%3Crect x='10' width='10' height='10' fill='%23f5f5f5'/%3E%3Crect x='20' width='10' height='10' fill='%23b40426'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="style.css" />
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="site">
+    <div>
+      <h1>NCPU-EM-1D</h1>
+      <p>
+        A one-dimensional neural cellular automaton. One small local rule, applied
+        to every cell over and over, transforms a binary string. A learned program
+        selects the task.
+      </p>
+    </div>
+    <p class="model-info" id="modelInfo">Loading model…</p>
+  </header>
+
+  <main class="layout">
+    <section class="panel controls" aria-labelledby="inputHeading">
+      <h2 id="inputHeading">Input</h2>
+      <label class="field">
+        <span>Task</span>
+        <select id="task"></select>
+      </label>
+      <label class="field">
+        <span>Binary string</span>
+        <input id="input" type="text" spellcheck="false" autocomplete="off" inputmode="numeric" />
+      </label>
+      <div class="buttons" id="examples">
+        <button type="button" data-example="">empty</button>
+        <button type="button" data-example="1101">1101</button>
+        <button type="button" data-example="11111100">11111100</button>
+        <button type="button" data-example="1011001110100">13 bits</button>
+        <button type="button" id="random">random</button>
+      </div>
+
+      <div class="row">
+        <label class="field">
+          <span>Tape cells</span>
+          <input id="tape" type="number" min="2" step="1" />
+        </label>
+        <label class="check"><input id="tapeAuto" type="checkbox" checked /> auto</label>
+      </div>
+      <div class="row">
+        <label class="field">
+          <span>Free steps</span>
+          <input id="free" type="number" min="0" step="1" />
+        </label>
+        <label class="field">
+          <span>Supervised steps</span>
+          <input id="supervision" type="number" min="1" step="1" />
+        </label>
+      </div>
+      <label class="check"><input id="timeAuto" type="checkbox" checked /> <span id="timeAutoLabel">auto timing</span></label>
+      <div class="row">
+        <label class="field">
+          <span>Firing seed</span>
+          <input id="seed" type="number" min="0" step="1" />
+        </label>
+        <button type="button" id="reseed">new seed</button>
+      </div>
+      <p class="error" id="error" role="alert"></p>
+    </section>
+
+    <section class="panel result" aria-labelledby="resultHeading" aria-live="polite">
+      <h2 id="resultHeading">Result <span class="badge" id="badge"></span></h2>
+      <dl>
+        <dt>Target</dt>
+        <dd><code id="target"></code></dd>
+        <dt>Output</dt>
+        <dd><code id="output"></code> <span class="verdict" id="verdict"></span></dd>
+        <dt>Raw tape</dt>
+        <dd><code id="raw"></code></dd>
+        <dt>Supervision window</dt>
+        <dd id="window"></dd>
+      </dl>
+      <p class="note" id="readoutNote"></p>
+    </section>
+
+    <section class="panel spacetime" aria-labelledby="spacetimeHeading">
+      <h2 id="spacetimeHeading">I/O channel over time</h2>
+      <p class="hint">
+        Rows are steps, time runs down; columns are tape cells. The left strip marks
+        <span class="key free"></span> free evolution and <span class="key supervised"></span>
+        the supervision window. Click or drag to pick a step.
+      </p>
+      <div class="canvas-wrap"><canvas id="spacetime"></canvas></div>
+      <p class="readout" id="spacetimeHover">&nbsp;</p>
+      <div class="legend" aria-hidden="true"><span>−1 (0)</span><i></i><span>+1 (1)</span></div>
+    </section>
+
+    <section class="panel stepview" aria-labelledby="stepHeading">
+      <h2 id="stepHeading">All channels at step <span id="stepLabel">0</span></h2>
+      <div class="timeline">
+        <button type="button" id="play" aria-label="Play">▶</button>
+        <input id="time" type="range" min="0" value="0" aria-label="Step" />
+        <span class="phase" id="phase"></span>
+      </div>
+      <div class="canvas-wrap"><canvas id="channels"></canvas></div>
+      <p class="readout" id="channelsHover">&nbsp;</p>
+      <p>Decoded at this step: <code id="stepDecoded"></code> <span class="verdict" id="stepVerdict"></span></p>
+    </section>
+  </main>
+
+  <footer class="site">
+    <h2>How it works</h2>
+    <p id="explainer"></p>
+    <p>
+      Inspired by <a href="https://ncpu.pages.dev/">NCPU</a> and
+      <a href="https://arxiv.org/abs/2608.14019">Emergent Models: Intelligence from Tiny Substrates</a>.
+      The frozen weights run locally in your browser; nothing is sent anywhere.
+      <span id="provenance"></span>
+    </p>
+  </footer>
+</body>
+</html>

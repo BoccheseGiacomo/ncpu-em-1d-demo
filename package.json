@@ -1,0 +1,8 @@
+{
+  "name": "ncpu-em-1d-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/verify.mjs"
+  }
+}
