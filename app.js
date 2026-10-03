@@ -12,6 +12,7 @@ import {
 
 const MAX_TAPE = 64;
 const MAX_STEPS = 3000;
+const BUSY_WORK = 12000; // tape cells × steps above which a "computing…" indicator is shown
 const NEGATIVE = [59, 76, 192];
 const NEUTRAL = [245, 245, 245];
 const POSITIVE = [180, 4, 38];
@@ -22,7 +23,7 @@ const ui = Object.fromEntries(
     "modelInfo", "task", "input", "random", "examples", "tape", "tapeAuto", "steps",
     "stepsAuto", "stepsHint", "seed", "reseed", "error", "badge", "target", "output",
     "verdict", "raw", "settle", "readoutNote", "channel", "spacetime", "spacetimeHover", "channels",
-    "channelsHover", "time", "play", "stepLabel", "stepDecoded", "stepVerdict", "accuracy",
+    "channelsHover", "time", "play", "stepLabel", "stepDecoded", "stepVerdict", "accuracy", "busy", "busyText",
     "provenance",
   ].map((id) => [id, $(id)]),
 );
@@ -149,11 +150,30 @@ function compute() {
   }
   const p = readParameters();
   if (p.error) {
+    setBusy(null);
     ui.error.textContent = p.error;
     p.field.setAttribute("aria-invalid", "true");
     return;
   }
   ui.error.textContent = "";
+  if (p.tape * p.steps > BUSY_WORK) {
+    // Long runs block the page briefly: show the indicator and let it paint first.
+    setBusy("computing…");
+    scheduled = setTimeout(() => simulate(p), 30);
+  } else {
+    simulate(p);
+  }
+}
+
+function setBusy(text) {
+  ui.busy.hidden = text === null;
+  if (text !== null) ui.busyText.textContent = text;
+  for (const element of [ui.settle.closest("dl"), ui.spacetime.closest(".panel"), ui.channels.closest(".panel")]) {
+    element.classList.toggle("stale", text !== null);
+  }
+}
+
+function simulate(p) {
   const result = rollout(model, {
     task: p.task,
     input: p.input,
@@ -167,6 +187,7 @@ function compute() {
   ui.time.max = p.steps;
   showResult();
   setStep(p.steps);
+  setBusy(null);
 }
 
 function showResult() {
@@ -475,6 +496,8 @@ async function main() {
     if (!response.ok) throw new Error(`model.json: HTTP ${response.status}`);
     model = loadModel(await response.json());
   } catch (error) {
+    document.body.classList.remove("loading");
+    ui.busy.hidden = true;
     ui.modelInfo.textContent = `Could not load the model: ${error.message}`;
     ui.error.textContent = "The model failed to load. Serve this folder over HTTP (see README).";
     return;
@@ -489,7 +512,8 @@ async function main() {
   readHash();
   describe();
   wire();
-  schedule(0);
+  document.body.classList.remove("loading");
+  schedule(0); // the first run hides the "loading model…" indicator
 }
 
 main();

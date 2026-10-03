@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="style.css" />
   <script type="module" src="app.js"></script>
 </head>
-<body>
+<body class="loading">
   <header class="site">
     <div>
       <h1>NCPU-EM-1D</h1>
@@ -19,7 +19,7 @@
         selects the task.
       </p>
     </div>
-    <p class="model-info" id="modelInfo">Loading model…</p>
+    <p class="model-info" id="modelInfo"><span class="spinner" aria-hidden="true"></span> Loading model…</p>
   </header>
 
   <main class="layout">
@@ -67,7 +67,9 @@
     </section>
 
     <section class="panel result" aria-labelledby="resultHeading" aria-live="polite">
-      <h2 id="resultHeading">Result <span class="badge" id="badge"></span></h2>
+      <h2 id="resultHeading">Result <span class="badge" id="badge"></span>
+        <span class="busy" id="busy" role="status"><span class="spinner" aria-hidden="true"></span><span id="busyText">loading model…</span></span>
+      </h2>
       <dl>
         <dt>Target</dt>
         <dd><code id="target"></code></dd>
