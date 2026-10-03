@@ -50,15 +50,12 @@
       </div>
       <div class="row">
         <label class="field">
-          <span>Free steps</span>
-          <input id="free" type="number" min="0" step="1" />
+          <span>Time steps</span>
+          <input id="steps" type="number" min="1" step="1" />
         </label>
-        <label class="field">
-          <span>Supervised steps</span>
-          <input id="supervision" type="number" min="1" step="1" />
-        </label>
+        <label class="check"><input id="stepsAuto" type="checkbox" checked /> auto</label>
       </div>
-      <label class="check"><input id="timeAuto" type="checkbox" checked /> <span id="timeAutoLabel">auto timing</span></label>
+      <p class="hint" id="stepsHint"></p>
       <div class="row">
         <label class="field">
           <span>Firing seed</span>
@@ -78,8 +75,8 @@
         <dd><code id="output"></code> <span class="verdict" id="verdict"></span></dd>
         <dt>Raw tape</dt>
         <dd><code id="raw"></code></dd>
-        <dt>Supervision window</dt>
-        <dd id="window"></dd>
+        <dt>Settling</dt>
+        <dd id="settle"></dd>
       </dl>
       <p class="note" id="readoutNote"></p>
     </section>
@@ -87,9 +84,8 @@
     <section class="panel spacetime" aria-labelledby="spacetimeHeading">
       <h2 id="spacetimeHeading">I/O channel over time</h2>
       <p class="hint">
-        Rows are steps, time runs down; columns are tape cells. The left strip marks
-        <span class="key free"></span> free evolution and <span class="key supervised"></span>
-        the supervision window. Click or drag to pick a step.
+        Rows are time steps, time runs down; columns are tape cells. Click or drag
+        to pick a step.
       </p>
       <div class="canvas-wrap"><canvas id="spacetime"></canvas></div>
       <p class="readout" id="spacetimeHover">&nbsp;</p>
@@ -101,7 +97,6 @@
       <div class="timeline">
         <button type="button" id="play" aria-label="Play">▶</button>
         <input id="time" type="range" min="0" value="0" aria-label="Step" />
-        <span class="phase" id="phase"></span>
       </div>
       <div class="canvas-wrap"><canvas id="channels"></canvas></div>
       <p class="readout" id="channelsHover">&nbsp;</p>

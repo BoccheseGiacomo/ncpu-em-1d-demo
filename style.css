@@ -8,8 +8,6 @@
   --gold: #c99a0e;
   --good: #1f7a3d;
   --bad: #b40426;
-  --free: #9aa3ae;
-  --supervised: #e0ac16;
   --grid: rgba(0, 0, 0, 0.12);
   color-scheme: light;
 }
@@ -25,8 +23,6 @@
     --gold: #e8bd36;
     --good: #5fc27e;
     --bad: #f06b7f;
-    --free: #5d6673;
-    --supervised: #e8bd36;
     --grid: rgba(0, 0, 0, 0.35);
     color-scheme: dark;
   }
@@ -294,22 +290,6 @@ dd {
   font-variant-numeric: tabular-nums;
 }
 
-.key {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  vertical-align: baseline;
-}
-
-.key.free {
-  background: var(--free);
-}
-
-.key.supervised {
-  background: var(--supervised);
-}
-
 .canvas-wrap {
   width: 100%;
 }
@@ -352,13 +332,6 @@ canvas {
 
 #play {
   width: 2.4rem;
-}
-
-.phase {
-  min-width: 9rem;
-  color: var(--muted);
-  font-size: 0.85rem;
-  text-align: right;
 }
 
 footer.site {

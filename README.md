@@ -12,9 +12,12 @@ dependencies.
 ## What you can do
 
 - Pick a task and type a binary string. You can also change the tape size, the
-  free and supervised step counts, and the firing seed.
-- Read the decoded output, its correctness, and whether it stays correct across
-  the whole supervision window. A badge marks inputs beyond the training range.
+  number of time steps, and the firing seed. By default the number of time
+  steps equals the length of a training rollout for that tape: about 5 per cell
+  for this model.
+- Read the decoded output at the last time step, whether it is correct, and the
+  step from which it stays correct. A badge marks inputs beyond the training
+  range.
 - Inspect the **I/O channel over time** (a space-time diagram), and **all
   channels** at any step. Use the slider, play, or click the diagram.
 - Share a run: the URL hash stores the task, input, seed, and any manual

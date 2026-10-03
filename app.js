@@ -19,17 +19,17 @@ const POSITIVE = [180, 4, 38];
 const $ = (id) => document.getElementById(id);
 const ui = Object.fromEntries(
   [
-    "modelInfo", "task", "input", "random", "examples", "tape", "tapeAuto", "free",
-    "supervision", "timeAuto", "timeAutoLabel", "seed", "reseed", "error", "badge",
-    "target", "output", "verdict", "raw", "window", "readoutNote", "spacetime",
-    "spacetimeHover", "channels", "channelsHover", "time", "play", "phase", "stepLabel",
-    "stepDecoded", "stepVerdict", "explainer", "provenance",
+    "modelInfo", "task", "input", "random", "examples", "tape", "tapeAuto", "steps",
+    "stepsAuto", "stepsHint", "seed", "reseed", "error", "badge", "target", "output",
+    "verdict", "raw", "settle", "readoutNote", "spacetime", "spacetimeHover", "channels",
+    "channelsHover", "time", "play", "stepLabel", "stepDecoded", "stepVerdict", "explainer",
+    "provenance",
   ].map((id) => [id, $(id)]),
 );
 
 let model;
 let training;
-let run = null; // { result, target, free, supervision, steps }
+let run = null; // { task, input, tape, steps, seed, result, target }
 let step = 0;
 let playing = false;
 let scheduled = 0;
@@ -59,9 +59,11 @@ function autoTape(task, length) {
   return Math.min(MAX_TAPE, Math.max(2, fit, length + Math.max(2, Math.ceil(length / 2))));
 }
 
-function autoTiming(tape) {
+// The training schedule: free evolution followed by the supervised window,
+// whose end is where training read the answer.
+function autoSteps(tape) {
   const free = roundHalfUp(training.free_steps_per_tape_slot * tape);
-  return { free, supervision: roundHalfUp(training.supervision_ratio * free) };
+  return free + roundHalfUp(training.supervision_ratio * free);
 }
 
 function readInteger(input) {
@@ -73,22 +75,17 @@ function syncAutoFields() {
   const task = ui.task.value;
   const input = ui.input.value.trim();
   ui.tape.disabled = ui.tapeAuto.checked;
-  ui.free.disabled = ui.supervision.disabled = ui.timeAuto.checked;
+  ui.steps.disabled = ui.stepsAuto.checked;
   if (ui.tapeAuto.checked && /^[01]*$/.test(input)) ui.tape.value = autoTape(task, input.length);
   const tape = readInteger(ui.tape);
-  if (ui.timeAuto.checked && Number.isInteger(tape)) {
-    const timing = autoTiming(tape);
-    ui.free.value = timing.free;
-    ui.supervision.value = timing.supervision;
-  }
+  if (ui.stepsAuto.checked && Number.isInteger(tape)) ui.steps.value = autoSteps(tape);
 }
 
 function readParameters() {
   const task = ui.task.value;
   const input = ui.input.value.trim();
   const tape = readInteger(ui.tape);
-  const free = readInteger(ui.free);
-  const supervision = readInteger(ui.supervision);
+  const steps = readInteger(ui.steps);
   const seed = readInteger(ui.seed);
   const invalid = (field, message) => ({ error: message, field });
   if (!/^[01]*$/.test(input)) return invalid(ui.input, "The input may contain only 0 and 1.");
@@ -101,15 +98,11 @@ function readParameters() {
   if (outputLengthBound(task, input.length) > tape - 1) {
     return invalid(ui.tape, "The output must leave at least one blank cell; use a longer tape.");
   }
-  if (!Number.isInteger(free)) return invalid(ui.free, "Free steps must be a whole number ≥ 0.");
-  if (!Number.isInteger(supervision) || supervision < 1) {
-    return invalid(ui.supervision, "Supervised steps must be a whole number ≥ 1.");
-  }
-  if (free + supervision > MAX_STEPS) {
-    return invalid(ui.free, `Free + supervised steps must be at most ${MAX_STEPS}.`);
+  if (!Number.isInteger(steps) || steps < 1 || steps > MAX_STEPS) {
+    return invalid(ui.steps, `Time steps must be a whole number from 1 to ${MAX_STEPS}.`);
   }
   if (!Number.isInteger(seed) || seed > 0xffffffff) return invalid(ui.seed, "The seed must be a whole number ≥ 0.");
-  return { task, input, tape, free, supervision, seed };
+  return { task, input, tape, steps, seed };
 }
 
 // --- URL state (shareable links) ---
@@ -117,10 +110,7 @@ function readParameters() {
 function writeHash(p) {
   const params = new URLSearchParams({ task: p.task, input: p.input, seed: p.seed });
   if (!ui.tapeAuto.checked) params.set("tape", p.tape);
-  if (!ui.timeAuto.checked) {
-    params.set("free", p.free);
-    params.set("sup", p.supervision);
-  }
+  if (!ui.stepsAuto.checked) params.set("steps", p.steps);
   history.replaceState(null, "", `#${params}`);
 }
 
@@ -129,14 +119,11 @@ function readHash() {
   if (model.tasks.includes(params.get("task"))) ui.task.value = params.get("task");
   if (params.has("input")) ui.input.value = params.get("input");
   if (params.has("seed")) ui.seed.value = params.get("seed");
-  // A link fully determines the run: absent tape/timing means automatic.
+  // A link fully determines the run: absent tape/steps means automatic.
   ui.tapeAuto.checked = !params.has("tape");
   if (params.has("tape")) ui.tape.value = params.get("tape");
-  ui.timeAuto.checked = !(params.has("free") && params.has("sup"));
-  if (!ui.timeAuto.checked) {
-    ui.free.value = params.get("free");
-    ui.supervision.value = params.get("sup");
-  }
+  ui.stepsAuto.checked = !params.has("steps");
+  if (params.has("steps")) ui.steps.value = params.get("steps");
 }
 
 // --- Running ---
@@ -148,7 +135,7 @@ function schedule(delay = 80) {
 }
 
 function compute() {
-  for (const field of [ui.input, ui.tape, ui.free, ui.supervision, ui.seed]) {
+  for (const field of [ui.input, ui.tape, ui.steps, ui.seed]) {
     field.removeAttribute("aria-invalid");
   }
   const p = readParameters();
@@ -158,41 +145,40 @@ function compute() {
     return;
   }
   ui.error.textContent = "";
-  const steps = p.free + p.supervision;
   const result = rollout(model, {
     task: p.task,
     input: p.input,
     tapeSlots: p.tape,
-    steps,
+    steps: p.steps,
     seed: p.seed,
   });
-  run = { ...p, steps, result, target: taskTarget(p.task, p.input) };
+  run = { ...p, result, target: taskTarget(p.task, p.input) };
   writeHash(p);
   stop();
-  ui.time.max = steps;
+  ui.time.max = p.steps;
   showResult();
-  setStep(steps);
+  setStep(p.steps);
 }
 
 function showResult() {
-  const { result, target, free, steps, input, tape } = run;
+  const { result, target, steps, input, tape } = run;
   const raw = tapeSymbols(result, steps);
   const decoded = decodeSingle(raw);
   const correct = semanticCorrect(raw, target);
-  let windowCorrect = 0;
-  for (let t = free + 1; t <= steps; t++) windowCorrect += semanticCorrect(tapeSymbols(result, t), target);
-  const windowSteps = steps - free;
+  // Earliest step from which the output stays correct through the last step.
+  let settled = steps + 1;
+  while (settled > 0 && semanticCorrect(tapeSymbols(result, settled - 1), target)) settled--;
 
   ui.target.textContent = target || "<empty>";
   ui.output.textContent = decoded.output || "<empty>";
   ui.verdict.textContent = correct ? "✓ correct" : "✗ wrong";
   ui.verdict.className = `verdict ${correct ? "good" : "bad"}`;
   ui.raw.textContent = raw;
-  ui.window.textContent =
-    `correct at ${windowCorrect} of ${windowSteps} supervised steps (${percent(windowCorrect / windowSteps)})` +
-    (windowCorrect === windowSteps ? " — stable" : "");
+  ui.settle.textContent = correct
+    ? `correct from step ${settled} through step ${steps}`
+    : "not correct at the last step";
   ui.readoutNote.textContent =
-    `Output is read at step ${steps}, the end of the supervision window. Cells above ` +
+    `Output is read at the last time step (${steps}). Cells above ` +
     `+${model.threshold} read as 1, below −${model.threshold} as 0, otherwise blank (B); ` +
     "the output ends at the first blank.";
 
@@ -204,17 +190,10 @@ function showResult() {
   ui.badge.className = `badge ${reasons.length ? "out" : "in"}`;
 }
 
-function phaseOf(t) {
-  if (t <= run.free) return "free evolution";
-  if (t <= run.steps) return "supervision window";
-  return "";
-}
-
 function setStep(t) {
   step = Math.max(0, Math.min(run.steps, t));
   ui.time.value = step;
   ui.stepLabel.textContent = `${step} / ${run.steps}`;
-  ui.phase.textContent = phaseOf(step);
   const raw = tapeSymbols(run.result, step);
   const correct = semanticCorrect(raw, run.target);
   ui.stepDecoded.textContent = decodeSingle(raw).output || "<empty>";
@@ -238,15 +217,13 @@ function prepare(canvas, height) {
   return { context, width, height };
 }
 
-const STRIP = 8;
-
 function spacetimeGeometry() {
   const rows = run.steps + 1;
   return { rows, height: Math.max(160, Math.min(560, rows * 4)) };
 }
 
 function drawSpacetime() {
-  const { result, T, steps, free } = { ...run, T: run.tape };
+  const { result, tape: T, steps } = run;
   const { rows, height } = spacetimeGeometry();
   const { context, width } = prepare(ui.spacetime, height);
   const image = new ImageData(T, rows);
@@ -265,17 +242,11 @@ function drawSpacetime() {
   bitmap.height = rows;
   bitmap.getContext("2d").putImageData(image, 0, 0);
   context.imageSmoothingEnabled = false;
-  context.drawImage(bitmap, STRIP + 2, 0, width - STRIP - 2, height);
+  context.drawImage(bitmap, 0, 0, width, height);
 
-  const styles = getComputedStyle(document.documentElement);
-  const rowHeight = height / rows;
-  context.fillStyle = styles.getPropertyValue("--free");
-  context.fillRect(0, 0, STRIP, (free + 1) * rowHeight);
-  context.fillStyle = styles.getPropertyValue("--supervised");
-  context.fillRect(0, (free + 1) * rowHeight, STRIP, height - (free + 1) * rowHeight);
   // Current step marker.
-  const y = (step + 0.5) * rowHeight;
-  context.strokeStyle = styles.getPropertyValue("--text");
+  const y = (step + 0.5) * (height / rows);
+  context.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--text");
   context.lineWidth = 1.5;
   context.beginPath();
   context.moveTo(0, y);
@@ -287,7 +258,7 @@ function spacetimeCell(event) {
   const rect = ui.spacetime.getBoundingClientRect();
   const { rows } = spacetimeGeometry();
   const t = Math.floor(((event.clientY - rect.top) / rect.height) * rows);
-  const x = Math.floor(((event.clientX - rect.left - STRIP - 2) / (rect.width - STRIP - 2)) * run.tape);
+  const x = Math.floor(((event.clientX - rect.left) / rect.width) * run.tape);
   return { t: Math.max(0, Math.min(run.steps, t)), x };
 }
 
@@ -413,8 +384,9 @@ function describe() {
   ui.modelInfo.textContent =
     `${s.update.toLocaleString()} training updates · ${s.parameter_count.toLocaleString()} parameters · ` +
     `trained on inputs ≤ ${training.input_max} bits, tapes ${training.tape_min}–${training.tape_max} cells`;
-  ui.timeAutoLabel.textContent =
-    `auto timing (${training.free_steps_per_tape_slot} free steps per cell, supervised ×${training.supervision_ratio})`;
+  const perCell = training.free_steps_per_tape_slot * (1 + training.supervision_ratio);
+  ui.stepsHint.textContent =
+    `Auto: about ${Number(perCell.toFixed(2))} time steps per tape cell, the length of a training rollout.`;
   ui.explainer.textContent =
     `Each tape cell holds ${c.channels} numbers: ${c.program_channels} read-only program values that select ` +
     `the task, 1 input/output value, and ${c.computation_channels} hidden values. At every step each cell ` +
@@ -422,17 +394,17 @@ function describe() {
     `and the same small network (${s.parameter_count.toLocaleString()} parameters, shared by all cells and ` +
     `all tasks) computes an update. Cells fire randomly with probability ${c.fire_rate} per step, as in ` +
     `training; the seed makes this reproducible. The input is written into the I/O row (0 → −1, 1 → +1, ` +
-    `blank → 0); after the free steps, training asked the I/O row to hold the answer throughout the ` +
-    `supervision window.` +
+    `blank → 0), and training asked the I/O row to hold the answer by the end of the rollout. ` +
+    `The automatic number of time steps matches those training rollouts.` +
     (accuracies ? ` Validation accuracy in the training range: ${accuracies}.` : "");
   ui.provenance.textContent = `Checkpoint ${s.checkpoint} (md5 ${s.md5.slice(0, 10)}).`;
 }
 
 function wire() {
-  const fields = [ui.task, ui.input, ui.tape, ui.free, ui.supervision, ui.seed];
+  const fields = [ui.task, ui.input, ui.tape, ui.steps, ui.seed];
   for (const field of fields) field.addEventListener("input", () => schedule());
   ui.tapeAuto.addEventListener("change", () => schedule(0));
-  ui.timeAuto.addEventListener("change", () => schedule(0));
+  ui.stepsAuto.addEventListener("change", () => schedule(0));
   ui.examples.addEventListener("click", (event) => {
     const example = event.target.closest("button[data-example]");
     if (!example) return;
