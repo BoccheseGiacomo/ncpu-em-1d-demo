@@ -98,3 +98,8 @@ copy and the shifts still hold, but reverse collapses (about 12% at 19 bits).
 
 Push this repository, then go to Settings → Pages → Deploy from a branch →
 `main` / root. The `.nojekyll` file makes Pages serve the files as they are.
+
+Pages lets browsers cache each file for 10 minutes. When you change any file,
+including `model.json`, bump the `?v=` tag in `index.html` (it appears twice).
+`app.js` passes that tag on to `nca.js` and `model.json`, so a browser always
+loads one consistent set of files.

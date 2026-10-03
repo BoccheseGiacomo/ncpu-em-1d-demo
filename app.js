@@ -1,4 +1,7 @@
-import {
+// The engine and model load with this script's version tag (set in index.html),
+// so the page never combines files from different deploys.
+const VERSION = new URL(import.meta.url).search;
+const {
   TASKS,
   decodeSingle,
   loadModel,
@@ -8,7 +11,7 @@ import {
   taskTarget,
   tapeSymbols,
   value,
-} from "./nca.js";
+} = await import(`./nca.js${VERSION}`);
 
 const MAX_TAPE = 64;
 const MAX_STEPS = 3000;
@@ -492,7 +495,7 @@ function wire() {
 
 async function main() {
   try {
-    const response = await fetch("model.json");
+    const response = await fetch(`model.json${VERSION}`);
     if (!response.ok) throw new Error(`model.json: HTTP ${response.status}`);
     model = loadModel(await response.json());
   } catch (error) {
