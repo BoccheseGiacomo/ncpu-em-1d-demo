@@ -284,6 +284,22 @@ dd {
   margin-top: 0;
 }
 
+.panel-heading {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.panel-heading h2 {
+  margin: 0;
+}
+
+.panel-heading select {
+  width: auto;
+}
+
 .readout {
   min-height: 1.5em;
   margin: 6px 0;

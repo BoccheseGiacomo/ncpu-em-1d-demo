@@ -21,8 +21,8 @@ const ui = Object.fromEntries(
   [
     "modelInfo", "task", "input", "random", "examples", "tape", "tapeAuto", "steps",
     "stepsAuto", "stepsHint", "seed", "reseed", "error", "badge", "target", "output",
-    "verdict", "raw", "settle", "readoutNote", "spacetime", "spacetimeHover", "channels",
-    "channelsHover", "time", "play", "stepLabel", "stepDecoded", "stepVerdict", "explainer",
+    "verdict", "raw", "settle", "readoutNote", "channel", "spacetime", "spacetimeHover", "channels",
+    "channelsHover", "time", "play", "stepLabel", "stepDecoded", "stepVerdict", "accuracy",
     "provenance",
   ].map((id) => [id, $(id)]),
 );
@@ -50,6 +50,15 @@ function channelName(c) {
   if (c === io) return "I/O";
   return `C${c - io - 1}`;
 }
+
+function channelDescription(c) {
+  const { program_channels: P, io_channel: io } = model.doc.config;
+  if (c < P) return `${channelName(c)} · program`;
+  if (c === io) return "I/O · input/output";
+  return `${channelName(c)} · hidden`;
+}
+
+const shownChannel = () => Number(ui.channel.value);
 
 // --- Parameters ---
 
@@ -226,10 +235,11 @@ function drawSpacetime() {
   const { result, tape: T, steps } = run;
   const { rows, height } = spacetimeGeometry();
   const { context, width } = prepare(ui.spacetime, height);
+  const channel = shownChannel();
   const image = new ImageData(T, rows);
   for (let t = 0; t <= steps; t++) {
     for (let x = 0; x < T; x++) {
-      const [r, g, b] = color(value(result, t, model.io, x));
+      const [r, g, b] = color(value(result, t, channel, x));
       const i = 4 * (t * T + x);
       image.data[i] = r;
       image.data[i + 1] = g;
@@ -374,7 +384,6 @@ function play() {
 // --- Wiring ---
 
 function describe() {
-  const c = model.doc.config;
   const s = model.doc.source;
   const accuracies = s.validation_accuracies
     ? Object.entries(s.validation_accuracies)
@@ -387,16 +396,9 @@ function describe() {
   const perCell = training.free_steps_per_tape_slot * (1 + training.supervision_ratio);
   ui.stepsHint.textContent =
     `Auto: about ${Number(perCell.toFixed(2))} time steps per tape cell, the length of a training rollout.`;
-  ui.explainer.textContent =
-    `Each tape cell holds ${c.channels} numbers: ${c.program_channels} read-only program values that select ` +
-    `the task, 1 input/output value, and ${c.computation_channels} hidden values. At every step each cell ` +
-    `looks at itself and its ${c.radius === 1 ? "two neighbours" : `neighbours up to distance ${c.radius}`} ` +
-    `and the same small network (${s.parameter_count.toLocaleString()} parameters, shared by all cells and ` +
-    `all tasks) computes an update. Cells fire randomly with probability ${c.fire_rate} per step, as in ` +
-    `training; the seed makes this reproducible. The input is written into the I/O row (0 → −1, 1 → +1, ` +
-    `blank → 0), and training asked the I/O row to hold the answer by the end of the rollout. ` +
-    `The automatic number of time steps matches those training rollouts.` +
-    (accuracies ? ` Validation accuracy in the training range: ${accuracies}.` : "");
+  ui.accuracy.textContent = accuracies
+    ? `Validation accuracy of this model inside its training range: ${accuracies}.`
+    : "";
   ui.provenance.textContent = `Checkpoint ${s.checkpoint} (md5 ${s.md5.slice(0, 10)}).`;
 }
 
@@ -425,6 +427,7 @@ function wire() {
     setStep(Number(ui.time.value));
   });
   ui.play.addEventListener("click", () => (playing ? stop() : play()));
+  ui.channel.addEventListener("change", () => run && drawSpacetime());
 
   ui.spacetime.addEventListener("pointerdown", (event) => {
     ui.spacetime.setPointerCapture(event.pointerId);
@@ -436,7 +439,9 @@ function wire() {
     const { t, x } = spacetimeCell(event);
     if (event.buttons) setStep(t);
     ui.spacetimeHover.textContent =
-      x >= 0 && x < run.tape ? `step ${t}, cell ${x}: I/O = ${value(run.result, t, model.io, x).toFixed(3)}` : " ";
+      x >= 0 && x < run.tape
+        ? `step ${t}, cell ${x}: ${channelName(shownChannel())} = ${value(run.result, t, shownChannel(), x).toFixed(3)}`
+        : " ";
   });
   ui.spacetime.addEventListener("pointerleave", () => (ui.spacetimeHover.textContent = " "));
   ui.channels.addEventListener("pointermove", (event) => {
@@ -476,6 +481,8 @@ async function main() {
   }
   training = model.doc.training;
   for (const task of model.tasks) ui.task.add(new Option(TASKS[task].label, task));
+  for (let c = 0; c < model.C; c++) ui.channel.add(new Option(channelDescription(c), c));
+  ui.channel.value = model.io;
   ui.input.value = "11111100";
   ui.seed.value = 0;
   ui.seed.disabled = ui.reseed.disabled = model.fireRate >= 1;

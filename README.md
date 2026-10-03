@@ -18,8 +18,10 @@ dependencies.
 - Read the decoded output at the last time step, whether it is correct, and the
   step from which it stays correct. A badge marks inputs beyond the training
   range.
-- Inspect the **I/O channel over time** (a space-time diagram), and **all
-  channels** at any step. Use the slider, play, or click the diagram.
+- Inspect **a channel over time** as a space-time diagram. It shows the I/O
+  channel by default, and any program or hidden channel can be selected. You
+  can also see **all channels** at any step: use the slider, play, or click the
+  diagram.
 - Share a run: the URL hash stores the task, input, seed, and any manual
   settings.
 

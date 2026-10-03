@@ -82,14 +82,18 @@
     </section>
 
     <section class="panel spacetime" aria-labelledby="spacetimeHeading">
-      <h2 id="spacetimeHeading">I/O channel over time</h2>
+      <div class="panel-heading">
+        <h2 id="spacetimeHeading">Channel over time</h2>
+        <select id="channel" aria-label="Channel shown over time"></select>
+      </div>
       <p class="hint">
         Rows are time steps, time runs down; columns are tape cells. Click or drag
-        to pick a step.
+        to pick a step. On the I/O channel, −1 reads as 0, +1 as 1, and values near 0
+        as blank.
       </p>
       <div class="canvas-wrap"><canvas id="spacetime"></canvas></div>
       <p class="readout" id="spacetimeHover">&nbsp;</p>
-      <div class="legend" aria-hidden="true"><span>−1 (0)</span><i></i><span>+1 (1)</span></div>
+      <div class="legend" aria-hidden="true"><span>−1</span><i></i><span>+1</span></div>
     </section>
 
     <section class="panel stepview" aria-labelledby="stepHeading">
@@ -106,7 +110,27 @@
 
   <footer class="site">
     <h2>How it works</h2>
-    <p id="explainer"></p>
+    <p>
+      The tape is a one-dimensional row of cells. Each cell holds a vector of values,
+      organised into channels: <strong>program</strong> channels that hold the learned
+      task program and stay fixed during a run, one <strong>input/output (I/O)</strong>
+      channel, and <strong>hidden</strong> channels the model uses as working memory.
+    </p>
+    <p>
+      The binary input is written into the I/O channel (0 → −1, 1 → +1, blank → 0),
+      and the chosen task's program fills the program channels. At every time step,
+      each cell looks at its own vector and those of its nearest neighbours, and one
+      small neural network computes an update. The network is the same for every cell,
+      every step and every task; only the program differs between tasks. As in
+      training, updates are stochastic: at each step a random subset of cells fires,
+      and the seed makes this reproducible.
+    </p>
+    <p>
+      After enough steps the answer appears in the I/O channel. Training asked for it
+      at the end of rollouts as long as the automatic number of time steps. Longer runs,
+      longer inputs and larger tapes show how far the learned rule generalises.
+      <span id="accuracy"></span>
+    </p>
     <p>
       Inspired by <a href="https://ncpu.pages.dev/">NCPU</a> and
       <a href="https://arxiv.org/abs/2608.14019">Emergent Models: Intelligence from Tiny Substrates</a>.
