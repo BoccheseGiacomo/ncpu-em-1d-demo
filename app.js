@@ -27,7 +27,8 @@ const ui = Object.fromEntries(
     "stepsAuto", "stepsHint", "seed", "reseed", "error", "badge", "target", "output",
     "verdict", "raw", "settle", "readoutNote", "channel", "spacetime", "spacetimeHover", "channels",
     "channelsHover", "time", "play", "stepLabel", "stepDecoded", "stepVerdict", "busy", "busyText", "accuracyPanel", "accuracyTable", "accuracyNotes",
-    "programRole", "programPlacement", "taskHint", "taskList", "taskExampleInput",
+    "programRole", "programPlacement", "taskHint", "taskList", "taskExampleInput", "async",
+    "asyncLabel", "asyncHint",
     "provenance",
   ].map((id) => [id, $(id)]),
 );
@@ -135,6 +136,21 @@ function showTask() {
   }
 }
 
+// Asynchronous firing (as trained) or every cell at every step.
+function showFiring() {
+  const trainedAsync = model.fireRate < 1;
+  const asynchronous = ui.async.checked;
+  ui.seed.disabled = ui.reseed.disabled = !asynchronous;
+  ui.asyncLabel.textContent = trainedAsync
+    ? `asynchronous firing (p = ${model.fireRate})`
+    : "asynchronous firing (not used by this model)";
+  ui.asyncHint.textContent = asynchronous
+    ? `Each cell updates with probability ${model.fireRate} per step, as in training; the seed fixes which cells fire.`
+    : trainedAsync
+      ? "Every cell updates at every step, so the run is deterministic. The model was trained with random firing, so results may differ."
+      : "Every cell updates at every step, as in training.";
+}
+
 // The tape must hold at least one blank and the whole program.
 const minTape = () => Math.max(2, model.L);
 
@@ -159,6 +175,7 @@ function readInteger(input) {
 function syncAutoFields() {
   const task = ui.task.value;
   showTask();
+  showFiring();
   const input = ui.input.value.trim();
   ui.tape.disabled = ui.tapeAuto.checked;
   ui.steps.disabled = ui.stepsAuto.checked;
@@ -189,7 +206,7 @@ function readParameters() {
     return invalid(ui.steps, `Time steps must be a whole number from 1 to ${MAX_STEPS}.`);
   }
   if (!Number.isInteger(seed) || seed > 0xffffffff) return invalid(ui.seed, "The seed must be a whole number ≥ 0.");
-  return { task, input, tape, steps, seed };
+  return { task, input, tape, steps, seed, asynchronous: ui.async.checked };
 }
 
 // --- URL state (shareable links) ---
@@ -198,6 +215,7 @@ function writeHash(p) {
   const params = new URLSearchParams({ task: p.task, input: p.input, seed: p.seed });
   if (!ui.tapeAuto.checked) params.set("tape", p.tape);
   if (!ui.stepsAuto.checked) params.set("steps", p.steps);
+  if (!p.asynchronous && model.fireRate < 1) params.set("sync", "1");
   history.replaceState(null, "", `#${params}`);
 }
 
@@ -210,6 +228,7 @@ function readHash() {
   ui.tapeAuto.checked = !params.has("tape");
   if (params.has("tape")) ui.tape.value = params.get("tape");
   ui.stepsAuto.checked = !params.has("steps");
+  ui.async.checked = model.fireRate < 1 && !params.has("sync");
   if (params.has("steps")) ui.steps.value = params.get("steps");
 }
 
@@ -257,6 +276,7 @@ function simulate(p) {
     tapeSlots: p.tape,
     steps: p.steps,
     seed: p.seed,
+    fireRate: p.asynchronous ? model.fireRate : 1,
   });
   run = { ...p, result, target: taskTarget(p.task, p.input) };
   writeHash(p);
@@ -572,6 +592,7 @@ function wire() {
   for (const field of fields) field.addEventListener("input", () => schedule());
   ui.tapeAuto.addEventListener("change", () => schedule(0));
   ui.stepsAuto.addEventListener("change", () => schedule(0));
+  ui.async.addEventListener("change", () => schedule(0));
   ui.examples.addEventListener("click", (event) => {
     const example = event.target.closest("button[data-example]");
     if (!example) return;
@@ -652,7 +673,7 @@ async function main() {
   ui.channel.value = model.io;
   ui.input.value = "11111100";
   ui.seed.value = 0;
-  ui.seed.disabled = ui.reseed.disabled = model.fireRate >= 1;
+  ui.async.disabled = model.fireRate >= 1;
   ui.tape.min = minTape();
   renderTasks();
   loadResults();

@@ -238,8 +238,12 @@ export function mulberry32(seed) {
 }
 
 // Full trajectory: states[t] for t = 0..steps, each [channel][cell].
+// fireRate overrides the trained firing probability (1 = every cell, every step).
 // masks (optional, for tests): one "0101..." string or Uint8Array per step.
-export function rollout(model, { task, input, tapeSlots, steps, seed = 0, masks = null }) {
+export function rollout(
+  model,
+  { task, input, tapeSlots, steps, seed = 0, fireRate = model.fireRate, masks = null },
+) {
   if (!Number.isInteger(steps) || steps < 0) throw new Error("steps must be a non-negative integer");
   const T = tapeSlots;
   const size = model.C * T;
@@ -254,8 +258,8 @@ export function rollout(model, { task, input, tapeSlots, steps, seed = 0, masks 
       const given = masks[t];
       for (let x = 0; x < T; x++) mask[x] = typeof given === "string" ? Number(given[x]) : given[x];
       stepMask = mask;
-    } else if (model.fireRate < 1) {
-      for (let x = 0; x < T; x++) mask[x] = random() < model.fireRate ? 1 : 0;
+    } else if (fireRate < 1) {
+      for (let x = 0; x < T; x++) mask[x] = random() < fireRate ? 1 : 0;
       stepMask = mask;
     }
     const current = states.subarray(t * size, (t + 1) * size);

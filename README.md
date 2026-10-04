@@ -16,6 +16,9 @@ dependencies.
   number of time steps, and the firing seed. By default the number of time
   steps equals the length of a training rollout for that tape: about 10 per cell
   for this model.
+- Switch **asynchronous firing** off to update every cell at every step. That
+  run is deterministic, but it isn't how the model was trained, which used
+  random firing with the model's `fire_rate`.
 - Read the decoded output at the last time step, whether it is correct, and the
   step from which it stays correct. A badge marks inputs beyond the training
   range.
@@ -49,8 +52,9 @@ Limits: up to 64 tape cells and 3,000 steps.
 `model.hidden_filters()` computes them. Weights use 9 significant digits, which
 represent every float32 exactly.
 
-Firing is stochastic, as in training: each cell updates with probability
-`fire_rate` per step. The browser draws its masks from a seeded PRNG
+Firing is stochastic by default, as in training: each cell updates with
+probability `fire_rate` per step. The page can switch this off; `rollout()`
+accepts a `fireRate` override. The browser draws its masks from a seeded PRNG
 (mulberry32). It is statistically equivalent to PyTorch's RNG, but not the same
 stream.
 
