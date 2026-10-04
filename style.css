@@ -97,7 +97,8 @@ header.site .model-info {
   grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   grid-template-areas:
     "controls result"
-    "spacetime steps";
+    "spacetime steps"
+    "accuracy accuracy";
 }
 
 .controls {
@@ -116,10 +117,18 @@ header.site .model-info {
   grid-area: steps;
 }
 
+.accuracy {
+  grid-area: accuracy;
+}
+
+.panel[hidden] {
+  display: none;
+}
+
 @media (max-width: 860px) {
   .layout {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "controls" "result" "steps" "spacetime";
+    grid-template-areas: "controls" "result" "steps" "spacetime" "accuracy";
   }
 }
 
@@ -406,4 +415,53 @@ body.loading .stepview,
   opacity: 0.45;
   pointer-events: none;
   transition: opacity 0.15s;
+}
+
+/* Measured accuracy table */
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+th,
+td {
+  padding: 5px 14px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  white-space: nowrap;
+}
+
+th:first-child,
+td:first-child {
+  padding-left: 0;
+  text-align: left;
+}
+
+thead th {
+  color: var(--muted);
+  font-weight: 500;
+  cursor: help;
+}
+
+tr.current td {
+  font-weight: 600;
+}
+
+tr.current td:first-child::before {
+  content: "▸ ";
+  color: var(--accent);
+}
+
+tfoot td {
+  border-bottom: none;
+  color: var(--muted);
+}
+
+ul.note {
+  margin: 10px 0 0;
+  padding-left: 1.1rem;
 }

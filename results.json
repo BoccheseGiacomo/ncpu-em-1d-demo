@@ -1,0 +1,34 @@
+{
+  "model_md5": "267e94df723c9372ed1157a475e789f8",
+  "metric": "semantic accuracy (%), measured in PyTorch with ncpu_computer_1d",
+  "columns": [
+    {
+      "key": "id",
+      "label": "ID",
+      "title": "In distribution",
+      "detail": "every string up to 3, 5, 7, 10 and 13 bits on 5, 8, 11, 15 and 20-cell tapes, at the training schedule (4 free steps per cell, then ×1.5), read at the last step; training validation at update 6,000"
+    },
+    {
+      "key": "ood3",
+      "label": "OOD +3",
+      "title": "3 bits beyond the training maximum",
+      "detail": "19-bit strings on a 25-cell tape, 100 + 150 steps (training schedule), mean over steps 101–250; 1,000 sampled strings"
+    },
+    {
+      "key": "ood5",
+      "label": "OOD +5",
+      "title": "5 bits beyond the training maximum",
+      "detail": "21-bit strings on a 27-cell tape, 108 + 162 steps (training schedule), mean over steps 109–270; 1,000 sampled strings"
+    }
+  ],
+  "rows": {
+    "reverse": { "id": 99.74, "ood3": 71.24, "ood5": 39.78 },
+    "copy": { "id": 100.0, "ood3": 85.94, "ood5": 65.43 },
+    "shift_left_zero": { "id": 100.0, "ood3": 97.7, "ood5": 86.47 },
+    "shift_right_zero": { "id": 99.99, "ood3": 98.0, "ood5": 94.53 },
+    "gray_encode": { "id": 100.0, "ood3": 92.79, "ood5": 77.12 },
+    "prefix_xor": { "id": 99.99, "ood3": 84.01, "ood5": 58.95 },
+    "increment": { "id": 100.0, "ood3": 98.38, "ood5": 87.95 }
+  },
+  "mean": { "id": 99.96, "ood3": 89.72, "ood5": 72.89 }
+}

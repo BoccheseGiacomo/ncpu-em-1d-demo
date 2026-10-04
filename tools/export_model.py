@@ -91,7 +91,12 @@ class Exporter:
         return free_steps, supervision
 
     def fit_tape(self, task: str, length: int, tape_slots: int) -> int:
-        return max(tape_slots, self.output_length_bound(task, length) + 1, length + 1)
+        return max(
+            tape_slots,
+            self.output_length_bound(task, length) + 1,
+            length + 1,
+            self.config.model.program_length,
+        )
 
     def training_range(self):
         training = self.config.training

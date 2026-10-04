@@ -26,7 +26,8 @@ const ui = Object.fromEntries(
     "modelInfo", "task", "input", "random", "examples", "tape", "tapeAuto", "steps",
     "stepsAuto", "stepsHint", "seed", "reseed", "error", "badge", "target", "output",
     "verdict", "raw", "settle", "readoutNote", "channel", "spacetime", "spacetimeHover", "channels",
-    "channelsHover", "time", "play", "stepLabel", "stepDecoded", "stepVerdict", "accuracy", "busy", "busyText",
+    "channelsHover", "time", "play", "stepLabel", "stepDecoded", "stepVerdict", "busy", "busyText", "accuracyPanel", "accuracyTable", "accuracyNotes",
+    "programRole", "programPlacement",
     "provenance",
   ].map((id) => [id, $(id)]),
 );
@@ -39,7 +40,6 @@ let playing = false;
 let scheduled = 0;
 
 const roundHalfUp = (x) => Math.floor(x + 0.5);
-const percent = (x) => `${(100 * x).toFixed(x === 1 || x === 0 ? 0 : 1)}%`;
 
 function color(v) {
   const t = Math.max(-1, Math.min(1, v));
@@ -66,10 +66,13 @@ const shownChannel = () => Number(ui.channel.value);
 
 // --- Parameters ---
 
+// The tape must hold at least one blank and the whole program.
+const minTape = () => Math.max(2, model.L);
+
 function autoTape(task, length) {
   const fit = Math.max(length + 1, outputLengthBound(task, length) + 1);
   // Reproduces the training pairs (3→5, 5→8, 7→11, 10→15, 13→20).
-  return Math.min(MAX_TAPE, Math.max(2, fit, length + Math.max(2, Math.ceil(length / 2))));
+  return Math.min(MAX_TAPE, Math.max(minTape(), fit, length + Math.max(2, Math.ceil(length / 2))));
 }
 
 // The training schedule: free evolution followed by the supervised window,
@@ -102,8 +105,9 @@ function readParameters() {
   const seed = readInteger(ui.seed);
   const invalid = (field, message) => ({ error: message, field });
   if (!/^[01]*$/.test(input)) return invalid(ui.input, "The input may contain only 0 and 1.");
-  if (!Number.isInteger(tape) || tape < 2 || tape > MAX_TAPE) {
-    return invalid(ui.tape, `Tape cells must be a whole number from 2 to ${MAX_TAPE}.`);
+  if (!Number.isInteger(tape) || tape < minTape() || tape > MAX_TAPE) {
+    const reason = model.L > 2 ? ` (the task program needs ${model.L} cells)` : "";
+    return invalid(ui.tape, `Tape cells must be a whole number from ${minTape()} to ${MAX_TAPE}${reason}.`);
   }
   if (input.length > tape - 1) {
     return invalid(ui.input, `The input must leave at least one blank cell (at most ${tape - 1} bits).`);
@@ -221,6 +225,7 @@ function showResult() {
   if (tape < training.tape_min) reasons.push(`tape ${tape} < ${training.tape_min} cells`);
   ui.badge.textContent = reasons.length ? `extrapolation: ${reasons.join(", ")}` : "within training range";
   ui.badge.className = `badge ${reasons.length ? "out" : "in"}`;
+  highlightAccuracy();
 }
 
 function setStep(t) {
@@ -409,21 +414,87 @@ function play() {
 
 function describe() {
   const s = model.doc.source;
-  const accuracies = s.validation_accuracies
-    ? Object.entries(s.validation_accuracies)
-        .map(([task, accuracy]) => `${TASKS[task].label} ${percent(accuracy)}`)
-        .join(", ")
-    : null;
+  const c = model.doc.config;
+  ui.programRole.textContent =
+    c.program_mode === "learned_mutable"
+      ? "that start from the learned task program and then evolve like any other channel"
+      : "that hold the learned task program and stay fixed during a run";
+  ui.programPlacement.textContent =
+    c.program_placement === "prefix"
+      ? "the chosen task's program is written into the program channels of the first few " +
+        "cells at the left end of the tape (the rest start at zero)"
+      : "the chosen task's program is written into the program channels of every cell";
   ui.modelInfo.textContent =
     `${s.update.toLocaleString()} training updates · ${s.parameter_count.toLocaleString()} parameters · ` +
     `trained on inputs ≤ ${training.input_max} bits, tapes ${training.tape_min}–${training.tape_max} cells`;
   const perCell = training.free_steps_per_tape_slot * (1 + training.supervision_ratio);
   ui.stepsHint.textContent =
     `Auto: about ${Number(perCell.toFixed(2))} time steps per tape cell, the length of a training rollout.`;
-  ui.accuracy.textContent = accuracies
-    ? `Validation accuracy of this model inside its training range: ${accuracies}.`
-    : "";
   ui.provenance.textContent = `Checkpoint ${s.checkpoint} (md5 ${s.md5.slice(0, 10)}).`;
+}
+
+// Accuracies measured offline (results.json), shown only for the model they belong to.
+async function loadResults() {
+  try {
+    const response = await fetch(`results.json${VERSION}`);
+    if (!response.ok) return;
+    const results = await response.json();
+    if (results.model_md5 === model.doc.source.md5) renderAccuracy(results);
+  } catch (error) {
+    console.warn("results.json could not be loaded:", error);
+  }
+}
+
+function element(tag, text, title) {
+  const node = document.createElement(tag);
+  node.textContent = text;
+  if (title) node.title = title;
+  return node;
+}
+
+function renderAccuracy(results) {
+  const row = (cells) => {
+    const tr = document.createElement("tr");
+    tr.append(...cells);
+    return tr;
+  };
+  const format = (v) => `${v.toFixed(2)}%`;
+  const table = ui.accuracyTable;
+  table.replaceChildren();
+  table.createTHead().append(
+    row([element("th", "Task"), ...results.columns.map((c) => element("th", c.label, `${c.title}: ${c.detail}`))]),
+  );
+  const body = table.createTBody();
+  for (const task of model.tasks) {
+    if (!results.rows[task]) continue;
+    const tr = row([
+      element("td", TASKS[task].label),
+      ...results.columns.map((c) => element("td", format(results.rows[task][c.key]))),
+    ]);
+    tr.dataset.task = task;
+    body.append(tr);
+  }
+  if (results.mean) {
+    table.createTFoot().append(
+      row([element("td", "mean"), ...results.columns.map((c) => element("td", format(results.mean[c.key])))]),
+    );
+  }
+  ui.accuracyNotes.replaceChildren(
+    element("li", `${results.metric[0].toUpperCase()}${results.metric.slice(1)}: the output is correct and followed by a blank.`),
+    ...results.columns.map((c) => {
+      const item = document.createElement("li");
+      item.append(element("strong", `${c.label}, ${c.title.toLowerCase()}`), `: ${c.detail}.`);
+      return item;
+    }),
+  );
+  ui.accuracyPanel.hidden = false;
+  highlightAccuracy();
+}
+
+function highlightAccuracy() {
+  for (const tr of ui.accuracyTable.querySelectorAll("tbody tr")) {
+    tr.classList.toggle("current", tr.dataset.task === ui.task.value);
+  }
 }
 
 function wire() {
@@ -512,6 +583,8 @@ async function main() {
   ui.input.value = "11111100";
   ui.seed.value = 0;
   ui.seed.disabled = ui.reseed.disabled = model.fireRate >= 1;
+  ui.tape.min = minTape();
+  loadResults();
   readHash();
   describe();
   wire();
