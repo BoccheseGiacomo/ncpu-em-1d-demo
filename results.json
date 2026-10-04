@@ -1,12 +1,12 @@
 {
   "model_md5": "267e94df723c9372ed1157a475e789f8",
   "metric": "semantic accuracy (%), measured in PyTorch with ncpu_computer_1d",
-  "columns": [
+  "groups": [
     {
       "key": "id",
       "label": "ID",
       "title": "In distribution",
-      "detail": "every string up to 3, 5, 7, 10 and 13 bits on 5, 8, 11, 15 and 20-cell tapes, at the training schedule (4 free steps per cell, then ×1.5), read at the last step; training validation at update 6,000"
+      "detail": "every string up to 3, 5, 7, 10 and 13 bits on 5, 8, 11, 15 and 20-cell tapes, at the training schedule (4 free steps per cell, then ×1.5), read at the last step"
     },
     {
       "key": "ood3",
@@ -21,14 +21,60 @@
       "detail": "21-bit strings on a 27-cell tape, 108 + 162 steps (training schedule), mean over steps 109–270; 1,000 sampled strings"
     }
   ],
+  "modes": [
+    {
+      "key": "sync",
+      "label": "sync",
+      "asynchronous": false,
+      "detail": "every cell updates at every step (fire rate 1.0), same weights, cases and strings"
+    },
+    {
+      "key": "async",
+      "label": "async",
+      "asynchronous": true,
+      "detail": "random firing with the trained probability, as in training; ID is the training validation at update 6,000"
+    }
+  ],
   "rows": {
-    "reverse": { "id": 99.74, "ood3": 71.24, "ood5": 39.78 },
-    "copy": { "id": 100.0, "ood3": 85.94, "ood5": 65.43 },
-    "shift_left_zero": { "id": 100.0, "ood3": 97.7, "ood5": 86.47 },
-    "shift_right_zero": { "id": 99.99, "ood3": 98.0, "ood5": 94.53 },
-    "gray_encode": { "id": 100.0, "ood3": 92.79, "ood5": 77.12 },
-    "prefix_xor": { "id": 99.99, "ood3": 84.01, "ood5": 58.95 },
-    "increment": { "id": 100.0, "ood3": 98.38, "ood5": 87.95 }
+    "reverse": {
+      "id": { "sync": 100.0, "async": 99.74 },
+      "ood3": { "sync": 95.12, "async": 71.24 },
+      "ood5": { "sync": 78.06, "async": 39.78 }
+    },
+    "copy": {
+      "id": { "sync": 100.0, "async": 100.0 },
+      "ood3": { "sync": 85.82, "async": 85.94 },
+      "ood5": { "sync": 63.77, "async": 65.43 }
+    },
+    "shift_left_zero": {
+      "id": { "sync": 100.0, "async": 100.0 },
+      "ood3": { "sync": 99.5, "async": 97.7 },
+      "ood5": { "sync": 88.6, "async": 86.47 }
+    },
+    "shift_right_zero": {
+      "id": { "sync": 100.0, "async": 99.99 },
+      "ood3": { "sync": 98.4, "async": 98.0 },
+      "ood5": { "sync": 94.86, "async": 94.53 }
+    },
+    "gray_encode": {
+      "id": { "sync": 100.0, "async": 100.0 },
+      "ood3": { "sync": 94.8, "async": 92.79 },
+      "ood5": { "sync": 82.6, "async": 77.12 }
+    },
+    "prefix_xor": {
+      "id": { "sync": 100.0, "async": 99.99 },
+      "ood3": { "sync": 85.3, "async": 84.01 },
+      "ood5": { "sync": 56.66, "async": 58.95 }
+    },
+    "increment": {
+      "id": { "sync": 100.0, "async": 100.0 },
+      "ood3": { "sync": 98.6, "async": 98.38 },
+      "ood5": { "sync": 87.81, "async": 87.95 }
+    }
   },
-  "mean": { "id": 99.96, "ood3": 89.72, "ood5": 72.89 }
+  "mean": {
+    "id": { "sync": 100.0, "async": 99.96 },
+    "ood3": { "sync": 93.93, "async": 89.72 },
+    "ood5": { "sync": 78.91, "async": 72.89 }
+  }
 }

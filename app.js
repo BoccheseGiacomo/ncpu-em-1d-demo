@@ -28,7 +28,7 @@ const ui = Object.fromEntries(
     "verdict", "raw", "settle", "readoutNote", "channel", "spacetime", "spacetimeHover", "channels",
     "channelsHover", "time", "play", "stepLabel", "stepDecoded", "stepVerdict", "busy", "busyText", "accuracyPanel", "accuracyTable", "accuracyNotes",
     "programRole", "programPlacement", "taskHint", "taskList", "taskExampleInput", "async",
-    "asyncLabel", "asyncHint",
+    "asyncLabel", "asyncHint", "firingText",
     "provenance",
   ].map((id) => [id, $(id)]),
 );
@@ -147,8 +147,15 @@ function showFiring() {
   ui.asyncHint.textContent = asynchronous
     ? `Each cell updates with probability ${model.fireRate} per step, as in training; the seed fixes which cells fire.`
     : trainedAsync
-      ? "Every cell updates at every step, so the run is deterministic. The model was trained with random firing, so results may differ."
+      ? "Off: every cell updates at every step, so the run is deterministic. The model was trained " +
+        "with random firing; see the table for both modes."
       : "Every cell updates at every step, as in training.";
+  ui.firingText.textContent = trainedAsync
+    ? "Training used asynchronous updates: at each step a random subset of cells fires. By default " +
+      "this page runs the model synchronously (every cell at every step), which is deterministic; " +
+      "switch on asynchronous firing to run it as trained, with the seed fixing which cells fire."
+    : "Every cell updates at every step, as in training.";
+  if (ui.accuracyTable.dataset.modes) highlightAccuracy();
 }
 
 // The tape must hold at least one blank and the whole program.
@@ -215,7 +222,7 @@ function writeHash(p) {
   const params = new URLSearchParams({ task: p.task, input: p.input, seed: p.seed });
   if (!ui.tapeAuto.checked) params.set("tape", p.tape);
   if (!ui.stepsAuto.checked) params.set("steps", p.steps);
-  if (!p.asynchronous && model.fireRate < 1) params.set("sync", "1");
+  if (p.asynchronous) params.set("async", "1");
   history.replaceState(null, "", `#${params}`);
 }
 
@@ -228,7 +235,8 @@ function readHash() {
   ui.tapeAuto.checked = !params.has("tape");
   if (params.has("tape")) ui.tape.value = params.get("tape");
   ui.stepsAuto.checked = !params.has("steps");
-  ui.async.checked = model.fireRate < 1 && !params.has("sync");
+  // Synchronous by default; "async=1" runs the model with random firing, as trained.
+  ui.async.checked = model.fireRate < 1 && params.has("async");
   if (params.has("steps")) ui.steps.value = params.get("steps");
 }
 
@@ -549,41 +557,74 @@ function renderAccuracy(results) {
     return tr;
   };
   const format = (v) => `${v.toFixed(2)}%`;
+  // One cell per (group, mode); cells carry their mode so the active one can be highlighted.
+  const valueCells = (values) =>
+    results.groups.flatMap((g) =>
+      results.modes.map((m) => {
+        const cell = element("td", format(values[g.key][m.key]));
+        cell.dataset.mode = m.key;
+        return cell;
+      }),
+    );
   const table = ui.accuracyTable;
   table.replaceChildren();
-  table.createTHead().append(
-    row([element("th", "Task"), ...results.columns.map((c) => element("th", c.label, `${c.title}: ${c.detail}`))]),
+  const head = table.createTHead();
+  const task = element("th", "Task");
+  task.rowSpan = 2;
+  head.append(
+    row([
+      task,
+      ...results.groups.map((g) => {
+        const cell = element("th", g.label, `${g.title}: ${g.detail}`);
+        cell.colSpan = results.modes.length;
+        cell.className = "group";
+        return cell;
+      }),
+    ]),
+    row(
+      results.groups.flatMap(() =>
+        results.modes.map((m) => {
+          const cell = element("th", m.label, m.detail);
+          cell.dataset.mode = m.key;
+          return cell;
+        }),
+      ),
+    ),
   );
   const body = table.createTBody();
-  for (const task of model.tasks) {
-    if (!results.rows[task]) continue;
-    const tr = row([
-      element("td", TASKS[task].label),
-      ...results.columns.map((c) => element("td", format(results.rows[task][c.key]))),
-    ]);
-    tr.dataset.task = task;
+  for (const name of model.tasks) {
+    if (!results.rows[name]) continue;
+    const tr = row([element("td", TASKS[name].label), ...valueCells(results.rows[name])]);
+    tr.dataset.task = name;
     body.append(tr);
   }
-  if (results.mean) {
-    table.createTFoot().append(
-      row([element("td", "mean"), ...results.columns.map((c) => element("td", format(results.mean[c.key])))]),
-    );
-  }
+  if (results.mean) table.createTFoot().append(row([element("td", "mean"), ...valueCells(results.mean)]));
+
+  const note = (label, text) => {
+    const item = document.createElement("li");
+    item.append(element("strong", label), `: ${text}.`);
+    return item;
+  };
   ui.accuracyNotes.replaceChildren(
     element("li", `${results.metric[0].toUpperCase()}${results.metric.slice(1)}: the output is correct and followed by a blank.`),
-    ...results.columns.map((c) => {
-      const item = document.createElement("li");
-      item.append(element("strong", `${c.label}, ${c.title.toLowerCase()}`), `: ${c.detail}.`);
-      return item;
-    }),
+    ...results.groups.map((g) => note(`${g.label}, ${g.title.toLowerCase()}`, g.detail)),
+    ...results.modes.map((m) => note(m.label, m.detail)),
+  );
+  ui.accuracyTable.dataset.modes = JSON.stringify(
+    Object.fromEntries(results.modes.map((m) => [m.key, m.asynchronous])),
   );
   ui.accuracyPanel.hidden = false;
   highlightAccuracy();
 }
 
+// Bold the selected task's row and the columns of the active firing mode.
 function highlightAccuracy() {
   for (const tr of ui.accuracyTable.querySelectorAll("tbody tr")) {
     tr.classList.toggle("current", tr.dataset.task === ui.task.value);
+  }
+  const modes = JSON.parse(ui.accuracyTable.dataset.modes || "{}");
+  for (const cell of ui.accuracyTable.querySelectorAll("[data-mode]")) {
+    cell.classList.toggle("active-mode", modes[cell.dataset.mode] === ui.async.checked);
   }
 }
 

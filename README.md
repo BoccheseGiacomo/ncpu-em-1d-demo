@@ -16,9 +16,10 @@ dependencies.
   number of time steps, and the firing seed. By default the number of time
   steps equals the length of a training rollout for that tape: about 10 per cell
   for this model.
-- Switch **asynchronous firing** off to update every cell at every step. That
-  run is deterministic, but it isn't how the model was trained, which used
-  random firing with the model's `fire_rate`.
+- Choose the firing mode. The default is **synchronous**: every cell updates at
+  every step, so a run is deterministic. Switch on **asynchronous firing** to
+  run the model as trained, with each cell firing with probability `fire_rate`
+  per step and the seed fixing which cells fire.
 - Read the decoded output at the last time step, whether it is correct, and the
   step from which it stays correct. A badge marks inputs beyond the training
   range.
@@ -27,8 +28,9 @@ dependencies.
   can also see **all channels** at any step: use the slider, play, or click the
   diagram.
 - Compare with the model's **measured accuracy** per task: in distribution
-  (ID), and 3 or 5 bits beyond the training maximum (OOD +3, OOD +5). The row of
-  the selected task is highlighted.
+  (ID), and 3 or 5 bits beyond the training maximum (OOD +3, OOD +5), in both
+  firing modes. The row of the selected task and the columns of the active mode
+  are highlighted.
 - Read **what each task does**: a short formula and a worked example per task.
 - Share a run: the URL hash stores the task, input, seed, and any manual
   settings.
@@ -110,20 +112,25 @@ end of the tape and can change during a run. Training used 4 free steps per
 tape cell, then ×1.5 supervised steps, on 7 tasks: reverse (weight 4), copy,
 shift left, shift right, Gray encode, prefix XOR and increment.
 
-Semantic accuracy, measured in PyTorch at the training schedule:
+Semantic accuracy, measured in PyTorch at the training schedule. Sync means
+every cell updates at every step (fire rate 1.0, same weights). Async means
+random firing at the trained probability of 0.9.
 
-| Task | ID | OOD +3 (19 bits) | OOD +5 (21 bits) |
-|---|---:|---:|---:|
-| reverse | 99.74% | 71.24% | 39.78% |
-| copy | 100.00% | 85.94% | 65.43% |
-| shift left | 100.00% | 97.70% | 86.47% |
-| shift right | 99.99% | 98.00% | 94.53% |
-| Gray encode | 100.00% | 92.79% | 77.12% |
-| prefix XOR | 99.99% | 84.01% | 58.95% |
-| increment | 100.00% | 98.38% | 87.95% |
-| mean | 99.96% | 89.72% | 72.89% |
+| Task | ID sync | ID async | OOD +3 sync | OOD +3 async | OOD +5 sync | OOD +5 async |
+|---|---:|---:|---:|---:|---:|---:|
+| reverse | 100.00% | 99.74% | 95.12% | 71.24% | 78.06% | 39.78% |
+| copy | 100.00% | 100.00% | 85.82% | 85.94% | 63.77% | 65.43% |
+| shift left | 100.00% | 100.00% | 99.50% | 97.70% | 88.60% | 86.47% |
+| shift right | 100.00% | 99.99% | 98.40% | 98.00% | 94.86% | 94.53% |
+| Gray encode | 100.00% | 100.00% | 94.80% | 92.79% | 82.60% | 77.12% |
+| prefix XOR | 100.00% | 99.99% | 85.30% | 84.01% | 56.66% | 58.95% |
+| increment | 100.00% | 100.00% | 98.60% | 98.38% | 87.81% | 87.95% |
+| mean | 100.00% | 99.96% | 93.93% | 89.72% | 78.91% | 72.89% |
 
-Running 1.2–1.7× longer than the training schedule does not change these
+Although the model was trained with random firing, running it synchronously
+roughly halves reverse's errors beyond the training range and leaves the other
+tasks about the same. So the page runs synchronously by default. In async
+mode, running 1.2–1.7× longer than the training schedule does not change the
 numbers beyond sampling noise.
 
 ## Deploy on GitHub Pages
