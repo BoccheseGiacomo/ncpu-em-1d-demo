@@ -98,7 +98,8 @@ header.site .model-info {
   grid-template-areas:
     "controls result"
     "spacetime steps"
-    "accuracy accuracy";
+    "accuracy accuracy"
+    "tasks tasks";
 }
 
 .controls {
@@ -121,6 +122,10 @@ header.site .model-info {
   grid-area: accuracy;
 }
 
+.tasks {
+  grid-area: tasks;
+}
+
 .panel[hidden] {
   display: none;
 }
@@ -128,7 +133,7 @@ header.site .model-info {
 @media (max-width: 860px) {
   .layout {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "controls" "result" "steps" "spacetime" "accuracy";
+    grid-template-areas: "controls" "result" "steps" "spacetime" "accuracy" "tasks";
   }
 }
 
@@ -464,4 +469,46 @@ tfoot td {
 ul.note {
   margin: 10px 0 0;
   padding-left: 1.1rem;
+}
+
+/* Task definitions */
+.task-hint {
+  margin: -6px 0 12px;
+}
+
+.task-list {
+  grid-template-columns: max-content max-content minmax(0, 1fr);
+  gap: 8px 24px;
+  align-items: baseline;
+}
+
+.task-list dt {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.task-list .formula {
+  margin: 0;
+  font-family: "Cambria Math", "STIX Two Math", Georgia, serif;
+  white-space: nowrap;
+}
+
+.task-list .example {
+  margin: 0;
+  color: var(--muted);
+}
+
+.task-list .current {
+  color: var(--accent);
+}
+
+@media (max-width: 640px) {
+  .task-list {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .task-list dt {
+    margin-top: 10px;
+  }
 }

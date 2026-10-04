@@ -27,7 +27,7 @@ const ui = Object.fromEntries(
     "stepsAuto", "stepsHint", "seed", "reseed", "error", "badge", "target", "output",
     "verdict", "raw", "settle", "readoutNote", "channel", "spacetime", "spacetimeHover", "channels",
     "channelsHover", "time", "play", "stepLabel", "stepDecoded", "stepVerdict", "busy", "busyText", "accuracyPanel", "accuracyTable", "accuracyNotes",
-    "programRole", "programPlacement",
+    "programRole", "programPlacement", "taskHint", "taskList", "taskExampleInput",
     "provenance",
   ].map((id) => [id, $(id)]),
 );
@@ -66,6 +66,75 @@ const shownChannel = () => Number(ui.channel.value);
 
 // --- Parameters ---
 
+// --- Task descriptions (examples are computed with the same functions as the targets) ---
+
+const EXAMPLE_INPUT = "10110";
+const x = (i) => `<var>x</var><sub>${i}</sub>`;
+const y = (i) => `<var>y</var><sub>${i}</sub>`;
+const TASK_INFO = {
+  copy: { formula: `${y("i")} = ${x("i")}`, text: "leave the string unchanged." },
+  bit_not: { formula: `${y("i")} = ¬${x("i")}`, text: "flip every bit." },
+  reverse: { formula: `${y("i")} = ${x("n+1−i")}`, text: "read the string backwards." },
+  reverse_not: { formula: `${y("i")} = ¬${x("n+1−i")}`, text: "reverse, then flip every bit." },
+  shift_left_zero: {
+    formula: `${y("i")} = ${x("i+1")}, &nbsp;${y("n")} = 0`,
+    text: "move every bit one place left; the first bit drops off and a 0 enters on the right.",
+  },
+  shift_right_zero: {
+    formula: `${y("1")} = 0, &nbsp;${y("i")} = ${x("i−1")}`,
+    text: "move every bit one place right; a 0 enters on the left and the last bit drops off.",
+  },
+  gray_encode: {
+    formula: `${y("1")} = ${x("1")}, &nbsp;${y("i")} = ${x("i−1")} ⊕ ${x("i")}`,
+    text: "binary to Gray code: each bit marks where neighbouring input bits differ.",
+  },
+  prefix_xor: {
+    formula: `${y("i")} = ${x("1")} ⊕ ${x("2")} ⊕ … ⊕ ${x("i")}`,
+    text: "running parity of the bits so far (this is also Gray decoding).",
+  },
+  increment: {
+    formula: `<var>y</var> = (<var>x</var> + 1) mod 2<sup><var>n</var></sup>`,
+    text: "add 1 to the binary number (most significant bit first); the width stays n, so 11…1 wraps to 00…0.",
+  },
+  parity: {
+    formula: `<var>y</var> = ${x("1")} ⊕ … ⊕ ${x("n")}`,
+    text: "a single bit: 1 when the input has an odd number of 1s.",
+  },
+  append_0: { formula: `<var>y</var> = <var>x</var>0`, text: "add a 0 at the end." },
+  append_1: { formula: `<var>y</var> = <var>x</var>1`, text: "add a 1 at the end." },
+};
+
+function exampleOf(task) {
+  return `${EXAMPLE_INPUT} → ${taskTarget(task, EXAMPLE_INPUT)}`;
+}
+
+function renderTasks() {
+  ui.taskExampleInput.textContent = EXAMPLE_INPUT;
+  const items = [];
+  for (const task of model.tasks) {
+    const info = TASK_INFO[task];
+    const name = element("dt", TASKS[task].label);
+    name.dataset.task = task;
+    const formula = document.createElement("dd");
+    formula.className = "formula";
+    formula.innerHTML = info.formula;
+    const example = document.createElement("dd");
+    example.className = "example";
+    example.append(element("code", exampleOf(task)), ` — ${info.text}`);
+    items.push(name, formula, example);
+  }
+  ui.taskList.replaceChildren(...items);
+}
+
+function showTask() {
+  const task = ui.task.value;
+  ui.taskHint.innerHTML = TASK_INFO[task].formula;
+  ui.taskHint.append("  ·  ", element("code", exampleOf(task)));
+  for (const name of ui.taskList.querySelectorAll("dt")) {
+    name.classList.toggle("current", name.dataset.task === task);
+  }
+}
+
 // The tape must hold at least one blank and the whole program.
 const minTape = () => Math.max(2, model.L);
 
@@ -89,6 +158,7 @@ function readInteger(input) {
 
 function syncAutoFields() {
   const task = ui.task.value;
+  showTask();
   const input = ui.input.value.trim();
   ui.tape.disabled = ui.tapeAuto.checked;
   ui.steps.disabled = ui.stepsAuto.checked;
@@ -584,6 +654,7 @@ async function main() {
   ui.seed.value = 0;
   ui.seed.disabled = ui.reseed.disabled = model.fireRate >= 1;
   ui.tape.min = minTape();
+  renderTasks();
   loadResults();
   readHash();
   describe();

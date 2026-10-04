@@ -26,6 +26,7 @@ dependencies.
 - Compare with the model's **measured accuracy** per task: in distribution
   (ID), and 3 or 5 bits beyond the training maximum (OOD +3, OOD +5). The row of
   the selected task is highlighted.
+- Read **what each task does**: a short formula and a worked example per task.
 - Share a run: the URL hash stores the task, input, seed, and any manual
   settings.
 
