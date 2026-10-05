@@ -27,7 +27,7 @@ const ui = Object.fromEntries(
     "stepsAuto", "stepsHint", "seed", "reseed", "error", "badge", "target", "output",
     "verdict", "raw", "settle", "readoutNote", "channel", "spacetime", "spacetimeHover", "channels",
     "channelsHover", "time", "play", "stepLabel", "stepDecoded", "stepVerdict", "busy", "busyText", "accuracyPanel", "accuracyTable", "accuracyNotes",
-    "programRole", "programPlacement", "taskHint", "taskList", "taskExampleInput", "async",
+    "programText", "taskHint", "taskList", "taskExampleInput", "async",
     "asyncLabel", "asyncHint", "firingText",
     "provenance",
   ].map((id) => [id, $(id)]),
@@ -513,15 +513,7 @@ function play() {
 function describe() {
   const s = model.doc.source;
   const c = model.doc.config;
-  ui.programRole.textContent =
-    c.program_mode === "learned_mutable"
-      ? "that start from the learned task program and then evolve like any other channel"
-      : "that hold the learned task program and stay fixed during a run";
-  ui.programPlacement.textContent =
-    c.program_placement === "prefix"
-      ? "the chosen task's program is written into the program channels of the first few " +
-        "cells at the left end of the tape (the rest start at zero)"
-      : "the chosen task's program is written into the program channels of every cell";
+  ui.programText.replaceChildren(...programExplanation(c));
   ui.modelInfo.textContent =
     `${s.update.toLocaleString()} training updates · ${s.parameter_count.toLocaleString()} parameters · ` +
     `trained on inputs ≤ ${training.input_max} bits, tapes ${training.tape_min}–${training.tape_max} cells`;
@@ -529,6 +521,52 @@ function describe() {
   ui.stepsHint.textContent =
     `Auto: about ${Number(perCell.toFixed(2))} time steps per tape cell, the length of a training rollout.`;
   ui.provenance.textContent = `Checkpoint ${s.checkpoint} (md5 ${s.md5.slice(0, 10)}).`;
+}
+
+// The "task program" paragraph, written from the model's configuration.
+function programExplanation(c) {
+  if (c.program_mode === "zero") {
+    return ["This model was trained on a single task without a task program; its program channels stay at zero."];
+  }
+  const parts = [
+    "The neural network that updates the cells is the same for every task. What tells it which " +
+      "task to perform is the task program: a short vector of numbers per task, learned during " +
+      "training together with the network. It is not code; it acts like an instruction that " +
+      "conditions the shared rule, so the same network behaves as a different cellular automaton " +
+      "for each task. ",
+  ];
+  if (c.program_placement === "prefix") {
+    parts.push(
+      "In this model the program is written only into the first few cells at the left end of the " +
+        "tape; the other cells start with zeros in their program channels and learn the task from " +
+        "signals that spread from the left. ",
+    );
+  } else if (c.program_length === 1) {
+    parts.push(
+      "In this model the same program vector is written into every cell, so from the very first " +
+        "step every cell knows the task, and the rule is identical at every position of the tape. ",
+    );
+  } else {
+    parts.push(
+      "In this model the program is a short pattern of vectors repeated along the tape, so every " +
+        "cell knows the task and also its phase within the pattern. ",
+    );
+  }
+  if (c.program_mode === "learned_mutable") {
+    parts.push(
+      element("strong", "The program is mutable: "),
+      "the program channels start from the task's vector, but the rule then updates them like any " +
+        "other channel. They can act as extra working memory, and nothing forces the task " +
+        "information to stay intact during a run (a read-only program would keep them fixed). ",
+    );
+  } else if (c.program_mode === "learned_read_only") {
+    parts.push(
+      element("strong", "The program is read-only: "),
+      "the program channels never change during a run, so the task information stays exact. ",
+    );
+  }
+  parts.push("Pick a program channel (P0, P1, …) in the channel-over-time view to watch it during a run.");
+  return parts;
 }
 
 // Accuracies measured offline (results.json), shown only for the model they belong to.
@@ -556,41 +594,52 @@ function renderAccuracy(results) {
     tr.append(...cells);
     return tr;
   };
-  const format = (v) => `${v.toFixed(2)}%`;
+  const format = (v) => v.toFixed(2); // the caption gives the unit (%)
   // One cell per (group, mode); cells carry their mode so the active one can be highlighted.
+  // With one firing mode the mode needs no columns of its own: it becomes the caption.
+  const single = results.modes.length === 1;
   const valueCells = (values) =>
     results.groups.flatMap((g) =>
       results.modes.map((m) => {
         const cell = element("td", format(values[g.key][m.key]));
-        cell.dataset.mode = m.key;
+        if (!single) cell.dataset.mode = m.key;
         return cell;
       }),
     );
   const table = ui.accuracyTable;
   table.replaceChildren();
+  if (!single) table.createCaption().textContent = "semantic accuracy (%)";
+  if (single) {
+    const mode = results.modes[0];
+    table.createCaption().textContent = `semantic accuracy (%), ${mode.asynchronous ? "asynchronous" : "synchronous"} firing`;
+  }
   const head = table.createTHead();
   const task = element("th", "Task");
-  task.rowSpan = 2;
+  task.rowSpan = single ? 1 : 2;
   head.append(
     row([
       task,
       ...results.groups.map((g) => {
         const cell = element("th", g.label, `${g.title}: ${g.detail}`);
         cell.colSpan = results.modes.length;
-        cell.className = "group";
+        if (!single) cell.className = "group";
         return cell;
       }),
     ]),
-    row(
-      results.groups.flatMap(() =>
-        results.modes.map((m) => {
-          const cell = element("th", m.label, m.detail);
-          cell.dataset.mode = m.key;
-          return cell;
-        }),
-      ),
-    ),
   );
+  if (!single) {
+    head.append(
+      row(
+        results.groups.flatMap(() =>
+          results.modes.map((m) => {
+            const cell = element("th", m.label, m.detail);
+            cell.dataset.mode = m.key;
+            return cell;
+          }),
+        ),
+      ),
+    );
+  }
   const body = table.createTBody();
   for (const name of model.tasks) {
     if (!results.rows[name]) continue;

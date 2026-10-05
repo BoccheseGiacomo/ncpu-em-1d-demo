@@ -532,3 +532,37 @@ thead tr + tr th:first-child {
   padding-left: 10px;
   text-align: right;
 }
+
+footer.site h3 {
+  margin: 1.2rem 0 0.3rem;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+table caption {
+  caption-side: top;
+  padding-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+/* Long checkpoint paths have no natural break points. */
+#provenance {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  table {
+    font-size: 0.8rem;
+  }
+
+  th,
+  td {
+    padding: 4px 5px;
+  }
+
+  td:first-child {
+    white-space: normal;
+  }
+}

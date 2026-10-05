@@ -44,7 +44,8 @@ Limits: up to 64 tape cells and 3,000 steps.
 | `index.html`, `style.css`, `app.js` | The page |
 | `nca.js` | Inference engine (pure ES module, no DOM). It mirrors `NeuralCellularAutomaton._step` |
 | `model.json` | Frozen weights, configuration, and provenance |
-| `results.json` | Accuracies measured offline in PyTorch (written by hand), tied to the model's md5 |
+| `results.json` | Accuracies measured in PyTorch, tied to the model's md5 |
+| `tools/measure_accuracy.py` | Measures a checkpoint in PyTorch and writes `results.json` |
 | `tools/export_model.py` | Exports `model.json` and `tests/fixtures.json` from a checkpoint |
 | `tests/verify.mjs` | Checks `nca.js` against PyTorch |
 
@@ -98,40 +99,52 @@ python tools/export_model.py --project <path/to/ncpu-em-1d> --checkpoint checkpo
 node tests/verify.mjs
 ```
 
-Then update `results.json` with the new model's md5 and measured accuracies.
-The page shows the accuracy table only when its md5 matches `model.json`, so a
-stale table is hidden rather than shown for the wrong model. Finally, bump the
+Then measure its accuracy, which writes `results.json`:
+
+```bash
+python tools/measure_accuracy.py --project <path/to/ncpu-em-1d> --checkpoint checkpoints/<run>/best.pt --firing sync --ood 3 5 10
+```
+
+The protocol is the training schedule, semantic accuracy at the last step, and
+two kinds of case. ID covers every string up to each base input maximum on its
+base tape. OOD +k uses 1,000 random strings of (training maximum + k) bits on a
+tape 6 cells longer. Use `--firing both` to get sync and async columns. The
+page shows the accuracy table only when its md5 matches `model.json`, so a stale
+table is hidden rather than shown for the wrong model. Finally, bump the
 `?v=` tag in `index.html` (see below).
 
 ## Current model
 
 `checkpoints/reverse_curriculum_1d_prefix4_mutable_p5_c5_6k_learned_mutable_trials_5/best.pt`
-(md5 `267e94df72…`): 6,000 updates and 8,719 parameters. It has 11 channels:
-5 program, 1 I/O and 5 hidden. Each task's program covers 4 cells at the left
-end of the tape and can change during a run. Training used 4 free steps per
-tape cell, then ×1.5 supervised steps, on 7 tasks: reverse (weight 4), copy,
-shift left, shift right, Gray encode, prefix XOR and increment.
+(md5 `e7f43094fa…`). Despite "prefix4" in the folder name, this model uses a
+period-1 program: the same task vector in every cell.
 
-Semantic accuracy, measured in PyTorch at the training schedule. Sync means
-every cell updates at every step (fire rate 1.0, same weights). Async means
-random firing at the trained probability of 0.9.
+- 7,000 updates, 10,150 parameters.
+- 13 channels: 5 program, 1 I/O and 7 hidden. The program is **mutable**: it
+  starts from the task's vector and is then updated like any other channel.
+- Trained with random firing (p = 0.95), 4 free steps per tape cell then ×1.5
+  supervised, batch 128 per task.
+- 7 tasks: reverse (weight 3), copy, shift left, shift right, Gray encode,
+  prefix XOR and increment.
 
-| Task | ID sync | ID async | OOD +3 sync | OOD +3 async | OOD +5 sync | OOD +5 async |
-|---|---:|---:|---:|---:|---:|---:|
-| reverse | 100.00% | 99.74% | 95.12% | 71.24% | 78.06% | 39.78% |
-| copy | 100.00% | 100.00% | 85.82% | 85.94% | 63.77% | 65.43% |
-| shift left | 100.00% | 100.00% | 99.50% | 97.70% | 88.60% | 86.47% |
-| shift right | 100.00% | 99.99% | 98.40% | 98.00% | 94.86% | 94.53% |
-| Gray encode | 100.00% | 100.00% | 94.80% | 92.79% | 82.60% | 77.12% |
-| prefix XOR | 100.00% | 99.99% | 85.30% | 84.01% | 56.66% | 58.95% |
-| increment | 100.00% | 100.00% | 98.60% | 98.38% | 87.81% | 87.95% |
-| mean | 100.00% | 99.96% | 93.93% | 89.72% | 78.91% | 72.89% |
+Semantic accuracy (%) at the last step with synchronous firing (the page
+default), measured by `tools/measure_accuracy.py`:
 
-Although the model was trained with random firing, running it synchronously
-roughly halves reverse's errors beyond the training range and leaves the other
-tasks about the same. So the page runs synchronously by default. In async
-mode, running 1.2–1.7× longer than the training schedule does not change the
-numbers beyond sampling noise.
+| Task | ID | OOD +3 (19 bits) | OOD +5 (21 bits) | OOD +10 (26 bits) |
+|---|---:|---:|---:|---:|
+| reverse | 100.00 | 99.70 | 87.90 | 1.10 |
+| copy | 100.00 | 100.00 | 100.00 | 100.00 |
+| shift left | 100.00 | 100.00 | 100.00 | 100.00 |
+| shift right | 100.00 | 100.00 | 100.00 | 100.00 |
+| Gray encode | 100.00 | 100.00 | 100.00 | 100.00 |
+| prefix XOR | 100.00 | 95.90 | 85.40 | 31.40 |
+| increment | 100.00 | 99.80 | 100.00 | 99.80 |
+| mean | 100.00 | 99.34 | 96.19 | 76.04 |
+
+Copy, the shifts, Gray encode and increment stay at 100% (increment 99.8%)
+even with 36-bit inputs, more than twice the training maximum of 16. Reverse
+and prefix XOR, the two tasks that need information carried across the whole
+input, degrade beyond about 5 extra bits.
 
 ## Deploy on GitHub Pages
 
