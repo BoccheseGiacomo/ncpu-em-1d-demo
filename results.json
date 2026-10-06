@@ -6,7 +6,7 @@
       "key": "id",
       "label": "ID",
       "title": "In distribution",
-      "detail": "every string up to 3, 5, 7, 10, 13 bits on 5, 8, 11, 15, 20-cell tapes, averaged over these pairs"
+      "detail": "every string up to 13 bits, on tapes up to 20 cells; training sampled strings up to 16 bits on tapes up to 24 cells"
     },
     {
       "key": "ood3",

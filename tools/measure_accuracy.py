@@ -80,16 +80,18 @@ def main() -> None:
         for base in training.base_input_max_lengths
     )
     base_pairs = list(zip(training.base_tape_slots, training.base_input_max_lengths))
+    tape_max = max(
+        package.tape_bounds(training, base, config.model.program_length)[1]
+        for base in training.base_tape_slots
+    )
     groups = [
         {
             "key": "id",
             "label": "ID",
             "title": "In distribution",
-            "detail": "every string up to "
-            + ", ".join(str(length) for _, length in base_pairs)
-            + " bits on "
-            + ", ".join(str(tape) for tape, _ in base_pairs)
-            + "-cell tapes, averaged over these pairs",
+            "detail": f"every string up to {max(length for _, length in base_pairs)} bits, "
+            f"on tapes up to {max(tape for tape, _ in base_pairs)} cells; training sampled strings "
+            f"up to {input_max} bits on tapes up to {tape_max} cells",
         }
     ] + [
         {
