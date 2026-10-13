@@ -48,6 +48,7 @@ Limits: up to 64 tape cells and 3,000 steps.
 | `tools/measure_accuracy.py` | Measures a checkpoint in PyTorch and writes `results.json` |
 | `tools/export_model.py` | Exports `model.json` and `tests/fixtures.json` from a checkpoint |
 | `tests/verify.mjs` | Checks `nca.js` against PyTorch |
+| `AGENTS.md` | Instructions for AI coding agents working on this repository |
 
 ## Faithfulness
 
